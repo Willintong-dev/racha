@@ -95,7 +95,7 @@ interface Species {
   headGeo?: ReactNode
   /**
    * Cómo lleva gorra/casco: 'cover' = le envuelve la parte de arriba de la cabeza;
-   * 'sit' = va pequeño encima. (La rana usa 'cover' con capBehind: la gorra va detrás de sus ojos.)
+   * 'sit' = va pequeño encima. (La rana usa 'cover' con capBehind para el casco y capPerch para la gorra.)
    */
   capMode?: 'cover' | 'sit'
   /**
@@ -103,6 +103,14 @@ interface Species {
    * quedan delante y se ve llevado detrás de los ojos.
    */
   capBehind?: boolean
+  /**
+   * Gorra encaramada (rana): va sobre la cabeza entre las cúpulas de los ojos, un poco ladeada; las cúpulas
+   * (geometría sin fill en `eyeDomes`) se vuelven a dibujar delante, así tapan el borde de la copa y los ojos se ven enteros.
+   * base = altura del borde, w = ancho de la copa, tilt = inclinación en grados.
+   */
+  capPerch?: { base: number; w: number; tilt: number }
+  /** Cúpulas de los ojos sin fill (para recortar la cabeza y redibujarlas delante de la gorra encaramada) */
+  eyeDomes?: ReactNode
   /** Zona donde se apoyan los sombreros si no es la cabeza (rana: entre las cúpulas de los ojos) */
   hatZone?: { cx: number; top: number; w: number }
   /** Inclinación de los sombreros (grados) */
@@ -174,8 +182,14 @@ const SPECIES: Species[] = [
   {
     name: 'Rana', head: { x: 20, y: 28, w: 80, h: 48, rx: 24 },
     headColor: '#58c25b', body: '#58c25b', belly: '#d9f7c4', arms: '#4bb04e', feet: '#3f9a43', eyes: [41, 26, 79, 26], eyeStyle: 'white', mouth: 'wide',
-    capMode: 'cover', capBehind: true, hatZone: { cx: 60, top: 11, w: 54 }, tilt: -4,
+    capMode: 'cover', capBehind: true, capPerch: { base: 20, w: 42, tilt: -6 }, hatZone: { cx: 60, top: 11, w: 54 }, tilt: -4,
     bow: [92, 23],
+    eyeDomes: (
+      <>
+        <circle cx="41" cy="27" r="14" />
+        <circle cx="79" cy="27" r="14" />
+      </>
+    ),
     headGeo: (
       <>
         <rect x="20" y="28" width="80" height="48" rx="24" />
@@ -322,7 +336,8 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
   // Gafas, moño y corona (abierta) dejan ver cuerno y melena; los demás sombreros los tapan
   const wearsHat = !!hat && hat !== 'hat_gafas' && hat !== 'hat_moño' && hat !== 'hat_corona'
   const covers = !!hat && COVERING.has(hat) && s.capMode !== 'sit'
-  const capBehind = !!hat && COVERING.has(hat) && !!s.capBehind
+  const perch = hat === 'hat_gorra' && !!s.capPerch
+  const capBehind = !!hat && COVERING.has(hat) && !!s.capBehind && !perch
   const isHappy = happy > 0
   const k = s.eyeScale ?? 1
   const [cdx, cdy] = s.cheeks ?? [0, 0]
@@ -367,6 +382,19 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
           {s.ears && !covers && <g className="cr-ears">{s.ears}</g>}
           {capBehind && hat && <Hat id={hat} s={s} />}
           <Vol fill={s.headColor}>{s.headGeo ?? <rect x={h.x} y={h.y} width={h.w} height={h.h} rx={h.rx} />}</Vol>
+          {perch && (
+            <>
+              <Hat id="hat_gorra" s={s} />
+              {/* Las cúpulas de los ojos vuelven delante de la gorra (misma cabeza, recortada a las cúpulas) */}
+              <defs>
+                <clipPath id={`crDomeClip${species}`}>{s.eyeDomes}</clipPath>
+              </defs>
+              <g clipPath={`url(#crDomeClip${species})`}>
+                <Vol fill={s.headColor}>{s.headGeo}</Vol>
+              </g>
+              <Hat id="hat_gorra" s={s} part="brim" />
+            </>
+          )}
           {s.face}
           {!wearsHat && s.crown}
           {!wearsHat && hat !== 'hat_corona' && s.horn}
@@ -416,7 +444,7 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
             <path d="M55 67 Q57.5 70 60 67 Q62.5 70 65 67" stroke={INK} strokeWidth="2.2" strokeLinecap="round" fill="none" />
           )}
 
-          {hat && !capBehind && <Hat id={hat} s={s} />}
+          {hat && !capBehind && !perch && <Hat id={hat} s={s} />}
           {/* Gorra y casco envuelven la cabeza: delante solo se ve la parte de la oreja que sobresale
               por encima de la gorra (como si saliera por un agujero); la base queda escondida debajo */}
           {covers && s.ears && (
@@ -453,7 +481,7 @@ const capBrim = (cx: number, y: number, w: number, d: number, te: number, sag: n
   return `M${x0} ${y} Q${cx} ${y + 2 * sag} ${x1} ${y} A${te / 2} ${te / 2} 0 0 1 ${x1} ${y + te} Q${cx} ${y + te + 2 * (sag + d - te)} ${x0} ${y + te} A${te / 2} ${te / 2} 0 0 1 ${x0} ${y} Z`
 }
 
-function Hat({ id, s }: { id: string; s: Species }) {
+function Hat({ id, s, part }: { id: string; s: Species; part?: 'brim' }) {
   const h = s.head
   const [lx, ly, rx, ry] = s.eyes
   // Zona de apoyo: centro, coronilla y ancho de la cabeza (o la zona especial de la rana)
@@ -466,6 +494,36 @@ function Hat({ id, s }: { id: string; s: Species }) {
     // ----- Envuelven la cabeza -----
     case 'hat_gorra':
     case 'hat_vikingo': {
+      if (id === 'hat_gorra' && s.capPerch) {
+        // Gorra encaramada (rana): copa pequeña entre las cúpulas de los ojos y visera en media luna delante
+        const { base, w: pw, tilt: pt } = s.capPerch
+        const r = pw / 2
+        const dh = pw * 0.55
+        const ct = base - dh
+        const bw = pw * 0.62
+        // part 'brim' = solo la visera (va delante de las cúpulas); si no, la copa (va detrás de ellas)
+        if (part === 'brim')
+          return (
+            <g transform={`rotate(${pt} ${cx} ${base})`}>
+              <path d={capBrim(cx, base + 4, bw * 0.85, 4, 2.5, 2.5)} fill="#000" opacity="0.18" />
+              <Vol fill="#2b6fe0" shine={false}>
+                <path d={capBrim(cx, base - 1.5, bw, 8.5, 3.5, 2.5)} />
+              </Vol>
+            </g>
+          )
+        return (
+          <g transform={`rotate(${pt} ${cx} ${base})`}>
+            <Vol fill="#3d8bff">
+              <path d={`M${cx - r} ${base + 1} C${cx - r} ${ct + dh * 0.3} ${cx - r * 0.62} ${ct} ${cx} ${ct} C${cx + r * 0.62} ${ct} ${cx + r} ${ct + dh * 0.3} ${cx + r} ${base + 1} Q${cx} ${base + 4} ${cx - r} ${base + 1} Z`} />
+            </Vol>
+            <g stroke="#2b6fe0" strokeWidth="1.6" strokeLinecap="round" fill="none" opacity="0.85">
+              <path d={`M${cx} ${ct + 2} Q${cx - r * 0.36} ${ct + dh * 0.35} ${cx - r * 0.42} ${base + 2}`} />
+              <path d={`M${cx} ${ct + 2} Q${cx + r * 0.36} ${ct + dh * 0.35} ${cx + r * 0.42} ${base + 2}`} />
+            </g>
+            <circle cx={cx} cy={ct + 1.5} r="3" fill="#2b6fe0" />
+          </g>
+        )
+      }
       if (id === 'hat_gorra' && !sit) {
         // Gorra puesta (vista de frente): copa que abraza la cabeza con costuras hacia el botón
         // y visera en media luna que sale hacia nosotros bajo la frente de la copa.

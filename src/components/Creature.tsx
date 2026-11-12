@@ -95,7 +95,7 @@ interface Species {
   headGeo?: ReactNode
   /**
    * Cómo lleva gorra/casco: 'cover' = le envuelve la parte de arriba de la cabeza;
-   * 'sit' = va pequeño encima (rana: si la cubriera, le taparía los ojos).
+   * 'sit' = va pequeño encima. (La rana usa 'cover' con capBehind: la gorra va detrás de sus ojos.)
    */
   capMode?: 'cover' | 'sit'
   /**

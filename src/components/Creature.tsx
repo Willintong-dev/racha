@@ -98,6 +98,11 @@ interface Species {
    * 'sit' = va pequeño encima (rana: si la cubriera, le taparía los ojos).
    */
   capMode?: 'cover' | 'sit'
+  /**
+   * Gorra/casco detrás de la cabeza (rana): se dibujan antes que la cabeza, así las cúpulas de los ojos
+   * quedan delante y se ve llevado detrás de los ojos.
+   */
+  capBehind?: boolean
   /** Zona donde se apoyan los sombreros si no es la cabeza (rana: entre las cúpulas de los ojos) */
   hatZone?: { cx: number; top: number; w: number }
   /** Inclinación de los sombreros (grados) */
@@ -167,7 +172,7 @@ const SPECIES: Species[] = [
   {
     name: 'Rana', head: { x: 20, y: 28, w: 80, h: 48, rx: 24 },
     headColor: '#58c25b', body: '#58c25b', belly: '#d9f7c4', arms: '#4bb04e', feet: '#3f9a43', eyes: [41, 26, 79, 26], eyeStyle: 'white', mouth: 'wide',
-    capMode: 'sit', hatZone: { cx: 60, top: 15, w: 44 }, tilt: -4,
+    capMode: 'cover', capBehind: true, hatZone: { cx: 60, top: 11, w: 54 }, tilt: -4,
     bow: [92, 23],
     headGeo: (
       <>
@@ -292,6 +297,7 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
   // Gafas, moño y corona (abierta) dejan ver cuerno y melena; los demás sombreros los tapan
   const wearsHat = !!hat && hat !== 'hat_gafas' && hat !== 'hat_moño' && hat !== 'hat_corona'
   const covers = !!hat && COVERING.has(hat) && s.capMode !== 'sit'
+  const capBehind = !!hat && COVERING.has(hat) && !!s.capBehind
   const isHappy = happy > 0
   const k = s.eyeScale ?? 1
   const [cdx, cdy] = s.cheeks ?? [0, 0]
@@ -330,6 +336,7 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
 
           {/* Cabeza */}
           {s.ears && !covers && <g className="cr-ears">{s.ears}</g>}
+          {capBehind && hat && <Hat id={hat} s={s} />}
           <Vol fill={s.headColor}>{s.headGeo ?? <rect x={h.x} y={h.y} width={h.w} height={h.h} rx={h.rx} />}</Vol>
           {s.face}
           {!wearsHat && s.crown}
@@ -380,7 +387,7 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
             <path d="M55 67 Q57.5 70 60 67 Q62.5 70 65 67" stroke={INK} strokeWidth="2.2" strokeLinecap="round" fill="none" />
           )}
 
-          {hat && <Hat id={hat} s={s} />}
+          {hat && !capBehind && <Hat id={hat} s={s} />}
           {/* Gorra y casco envuelven la cabeza: delante solo se ve la parte de la oreja que sobresale
               por encima de la gorra (como si saliera por un agujero); la base queda escondida debajo */}
           {covers && s.ears && (

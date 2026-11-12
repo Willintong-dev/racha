@@ -24,5 +24,9 @@ export default defineConfig({
       },
     }),
   ],
-  server: { host: true },
+  server: {
+    host: true,
+    // No vigilar herramientas locales (p. ej. worktrees temporales en .claude/).
+    watch: { ignored: ['**/.claude/**'] },
+  },
 })

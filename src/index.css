@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* No escanear herramientas locales (worktrees temporales de agentes en .claude/). */
+@source not "../.claude";
 
 @theme {
   --font-sans: "Nunito", ui-rounded, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -49,10 +51,15 @@ input {
 
 /* ---------------------------------------------------------------------------
    Animaciones de los personajes (SVG).
-   CSS con transform-box: fill-box → cada parte gira/escala alrededor de SU propio punto
-   (hombro, base de la oreja, centro del ojo), igual en todos los navegadores.
+   transform-box: fill-box SOLO en las clases animadas → cada parte gira/escala alrededor
+   de SU propio punto (hombro, base de la oreja, centro del ojo).
+   OJO: nunca aplicarlo a todos los descendientes (.cr *): el atributo SVG transform="…"
+   es la propiedad CSS transform, y fill-box re-ancla cada rotate()/translate() estático
+   (parches del panda, sombreros…). Un elemento con clase .cr-* no debe llevar atributo
+   transform: envolverlo en otro <g>.
    --------------------------------------------------------------------------- */
-.cr * {
+.cr-bob, .cr-feet, .cr-breathe, .cr-shadow, .cr-blink, .cr-ears, .cr-tail,
+.cr-jump, .cr-pet, .cr-tassel, .cr-sparkle {
   transform-box: fill-box;
 }
 .cr-bob { animation: cr-bob 2.6s ease-in-out infinite; }

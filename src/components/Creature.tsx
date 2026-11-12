@@ -11,7 +11,7 @@ import type { ReactNode } from 'react'
  * (`head`: x, y, ancho). La gorra y el casco envuelven la parte de arriba de la cabeza y las orejas salen
  * por delante; sombrero de copa, corona y birrete se apoyan en la coronilla con un ancho proporcional.
  *
- * Animaciones con CSS (clases .cr-* en index.css, transform-box: fill-box).
+ * Animaciones con CSS (clases .cr-* en index.css, transform-box: fill-box). Un elemento con clase cr-* NO debe llevar atributo transform (envolverlo en otro <g>).
  * viewBox de referencia 0 0 120 120: cuerpo y72–102, pies y≈106, suelo y≈117.
  */
 

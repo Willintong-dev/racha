@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useOutlet } from '
 import { useLiveQuery } from 'dexie-react-hooks'
 import { AuthProvider, useAuth } from './lib/auth'
 import { DataProvider } from './lib/data'
+import { SyncProvider } from './lib/syncProvider'
 import { db } from './lib/db'
 import { CelebrationLayer } from './components/CelebrationLayer'
 import { QuickAddProvider } from './components/QuickAdd'
@@ -104,7 +105,9 @@ export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-        <Root />
+        <SyncProvider>
+          <Root />
+        </SyncProvider>
         <CelebrationLayer />
       </BrowserRouter>
     </AuthProvider>

@@ -14,6 +14,7 @@ import { changeMainCurrency, setRate } from '../lib/actions'
 import { Avatar, BigButton, Chip, NumPad, Page, Sheet, XpBar } from '../components/ui'
 import { RateInput } from '../components/currency'
 import { MonthlyItems } from '../components/MonthlyItems'
+import { SyncBadge } from '../lib/syncProvider'
 
 export function Profile() {
   const { profile, userId, accounts, main } = useData()
@@ -214,7 +215,7 @@ export function Profile() {
         </BigButton>
       </div>
       <p className="mt-4 text-center text-xs text-muted">
-        {mode === 'local' ? 'Modo local: tus datos viven solo en este dispositivo.' : 'Sesión con Supabase.'}
+        {mode === 'local' ? 'Modo local: tus datos viven solo en este dispositivo.' : <SyncBadge />}
       </p>
 
       <Sheet open={!!rateFor} onClose={() => setRateFor(null)} title={`Tasa de ${rateFor ?? ''}`}>

@@ -1,4 +1,4 @@
-import Dexie, { type EntityTable } from 'dexie'
+import Dexie, { type DBCore, type DBCoreMutateRequest, type DBCoreTransaction, type EntityTable } from 'dexie'
 
 export type AccountType = 'banco' | 'efectivo' | 'ahorro' | 'digital'
 
@@ -129,15 +129,144 @@ export interface LocalUser {
   createdAt: number
 }
 
-class RachaDB extends Dexie {
+// ---------------------------------------------------------------------------
+// Sincronización: registro de cambios locales
+// ---------------------------------------------------------------------------
+
+export type SyncKind = 'profile' | 'account' | 'transaction' | 'debt'
+
+/** Tabla de Dexie → tipo de documento en la nube (`user_docs.kind`). `localUsers` nunca se sincroniza. */
+export const SYNC_TABLES = { profiles: 'profile', accounts: 'account', transactions: 'transaction', debts: 'debt' } as const
+export type SyncTable = keyof typeof SYNC_TABLES
+export const TABLE_OF: Record<SyncKind, SyncTable> = { profile: 'profiles', account: 'accounts', transaction: 'transactions', debt: 'debts' }
+
+/** Un cambio local pendiente de subir. Varios cambios del mismo documento se agrupan al subir. */
+export interface OutboxEntry {
+  seq?: number
+  kind: SyncKind
+  id: string
+  userId: string
+  /** true = se borró (se sube como lápida) */
+  deleted: boolean
+  ts: number
+}
+
+/** Estado de sincronización (lastPulledAt por usuario, decisiones de importación…) */
+export interface MetaEntry {
+  key: string
+  value: unknown
+}
+
+/** Marca de las transacciones que aplican cambios bajados de la nube: no deben volver a la cola. */
+const REMOTE_TAG = '__rachaRemote'
+export function markRemote(trans: unknown) {
+  ;(trans as Record<string, unknown>)[REMOTE_TAG] = true
+}
+
+const keyOf = (table: SyncTable, row: { id?: string; userId?: string }) => (table === 'profiles' ? row.userId : row.id) as string
+
+/**
+ * Middleware de Dexie que registra en `outbox` cada escritura sobre perfiles, cuentas, movimientos
+ * y deudas del usuario que sincroniza (`db.syncUserId`). Va en la MISMA transacción que la escritura,
+ * así un cambio nunca queda guardado sin su registro (ni al revés).
+ */
+function outboxMiddleware(owner: RachaDB) {
+  return {
+    stack: 'dbcore' as const,
+    name: 'racha-outbox',
+    create(down: DBCore): DBCore {
+      return {
+        ...down,
+        transaction(stores, mode, options) {
+          if (mode === 'readwrite' && stores.some((s) => s in SYNC_TABLES) && !stores.includes('outbox')) {
+            stores = [...stores, 'outbox']
+          }
+          return down.transaction(stores, mode, options)
+        },
+        table(name) {
+          const table = down.table(name)
+          if (!(name in SYNC_TABLES)) return table
+          const tname = name as SyncTable
+          const kind = SYNC_TABLES[tname]
+          return {
+            ...table,
+            async mutate(req: DBCoreMutateRequest) {
+              const userId = owner.syncUserId
+              const trans = req.trans as DBCoreTransaction & Record<string, unknown>
+              if (!userId || trans[REMOTE_TAG]) return table.mutate(req)
+
+              // Para los borrados necesitamos leer antes la fila (¿de quién era?)
+              let gone: { id?: string; userId?: string }[] = []
+              if (req.type === 'delete') {
+                gone = (await table.getMany({ trans: req.trans, keys: req.keys })).filter(Boolean)
+              } else if (req.type === 'deleteRange') {
+                const r = await table.query({
+                  trans: req.trans,
+                  values: true,
+                  query: { index: table.schema.primaryKey, range: req.range },
+                })
+                gone = r.result
+              }
+
+              const res = await table.mutate(req)
+
+              const ts = Date.now()
+              const entries: OutboxEntry[] = []
+              if (req.type === 'add' || req.type === 'put') {
+                req.values.forEach((v: { id?: string; userId?: string }, i: number) => {
+                  if (res.failures?.[i] || v?.userId !== userId) return
+                  entries.push({ kind, id: keyOf(tname, v), userId, deleted: false, ts })
+                })
+              } else {
+                for (const v of gone) {
+                  if (v.userId === userId) entries.push({ kind, id: keyOf(tname, v), userId, deleted: true, ts })
+                }
+              }
+              if (entries.length) {
+                await down.table('outbox').mutate({ type: 'add', trans: req.trans, values: entries })
+                // Avisamos cuando la transacción ya se guardó (y no si se deshizo)
+                const idb = req.trans as unknown as { addEventListener?: (e: string, f: () => void) => void }
+                if (idb.addEventListener) idb.addEventListener('complete', () => owner.notifyOutbox())
+                else queueMicrotask(() => owner.notifyOutbox())
+              }
+              return res
+            },
+          }
+        },
+      }
+    },
+  }
+}
+
+export class RachaDB extends Dexie {
   accounts!: EntityTable<Account, 'id'>
   transactions!: EntityTable<Transaction, 'id'>
   profiles!: EntityTable<Profile, 'userId'>
   localUsers!: EntityTable<LocalUser, 'id'>
   debts!: EntityTable<Debt, 'id'>
+  outbox!: EntityTable<OutboxEntry, 'seq'>
+  meta!: EntityTable<MetaEntry, 'key'>
 
-  constructor() {
-    super('racha')
+  /**
+   * Usuario de Supabase cuyos cambios se registran para subir. null = no se registra nada
+   * (modo local o sin sesión): los usuarios locales nunca se sincronizan.
+   */
+  syncUserId: string | null = null
+  private outboxListeners = new Set<() => void>()
+
+  /** Escucha cambios locales nuevos en la cola (para sincronizar un poco después) */
+  onOutbox(fn: () => void) {
+    this.outboxListeners.add(fn)
+    return () => {
+      this.outboxListeners.delete(fn)
+    }
+  }
+  notifyOutbox() {
+    for (const fn of this.outboxListeners) fn()
+  }
+
+  constructor(name = 'racha') {
+    super(name)
     this.version(1).stores({
       accounts: 'id, userId',
       transactions: 'id, userId, date, accountId',
@@ -159,6 +288,9 @@ class RachaDB extends Dexie {
       })
     // v3: deudas
     this.version(3).stores({ debts: 'id, userId' })
+    // v4: sincronización en la nube (cola de cambios locales + estado)
+    this.version(4).stores({ outbox: '++seq, userId', meta: 'key' })
+    this.use(outboxMiddleware(this))
   }
 }
 

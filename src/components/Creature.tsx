@@ -120,6 +120,8 @@ interface Species {
   mouth?: 'smile' | 'wide' | 'none'
   /** Desplazamiento de los cachetes [hacia afuera, hacia abajo] (panda: que no caigan sobre las manchas) */
   cheeks?: [number, number]
+  /** Brazos y barriga a medida, SIN fill (pingüino: aletas y barriga ovalada); si no, los genéricos */
+  torso?: { arms?: ReactNode; belly?: ReactNode }
 }
 
 const SPECIES: Species[] = [
@@ -217,19 +219,30 @@ const SPECIES: Species[] = [
       </>
     ),
   },
-  // 4 · Pingüino — el menos cabezón
+  // 4 · Pingüino — cabeza redonda con antifaz blanco en corazón (dos círculos + óvalo), aletas y barriga blanca
   {
-    name: 'Pingüino', head: { x: 31, y: 21, w: 58, h: 55, rx: 24 },
-    headColor: '#33415c', body: '#33415c', belly: '#ffffff', arms: '#2a3650', feet: '#ff9f1c', eyes: [49, 47, 71, 47], tilt: -8,
-    bow: [80, 25],
+    name: 'Pingüino', head: { x: 25, y: 18, w: 70, h: 58, rx: 28 },
+    headColor: '#33415c', body: '#33415c', belly: '#ffffff', arms: '#2a3650', feet: '#ff9f1c', eyes: [48.5, 49, 71.5, 49], tilt: -8,
+    cheeks: [-3, 0],
+    bow: [84, 23],
     face: (
-      <>
-        <rect x="35" y="32" width="50" height="40" rx="18" fill="#ffffff" />
-        <path d={dome(60, 34, 9)} fill="#33415c" />
-      </>
+      <g fill="#ffffff">
+        <circle cx="48.5" cy="49" r="14.5" />
+        <circle cx="71.5" cy="49" r="14.5" />
+        <ellipse cx="60" cy="59" rx="22" ry="13" />
+      </g>
     ),
-    snout: <RTri d="M55 57 L65 57 L60 63 Z" fill="#ff9f1c" r={5} />,
+    snout: <RTri d="M56 59 L64 59 L60 63.5 Z" fill="#ff9f1c" r={4} />,
     mouth: 'none',
+    torso: {
+      arms: (
+        <>
+          <ellipse cx="37" cy="87" rx="5" ry="11" transform="rotate(22 37 87)" />
+          <ellipse cx="83" cy="87" rx="5" ry="11" transform="rotate(-22 83 87)" />
+        </>
+      ),
+      belly: <ellipse cx="60" cy="90" rx="14" ry="11" />,
+    },
   },
   // 5 · Unicornio — cabeza mediana-alta, hocico de caballo, crin pastel y cuerno dorado
   {
@@ -332,8 +345,12 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
 
           {/* Bracitos quietos a los lados */}
           <Vol fill={s.arms}>
-            <rect x="33" y="78" width="10" height="17" rx="5" />
-            <rect x="77" y="78" width="10" height="17" rx="5" />
+            {s.torso?.arms ?? (
+              <>
+                <rect x="33" y="78" width="10" height="17" rx="5" />
+                <rect x="77" y="78" width="10" height="17" rx="5" />
+              </>
+            )}
           </Vol>
 
           <g className="cr-breathe">
@@ -341,7 +358,7 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
               <rect x="39" y="72" width="42" height="30" rx="14" />
             </Vol>
             <Vol fill={s.belly} shine={false}>
-              <path d={dome(60, 102, 13)} />
+              {s.torso?.belly ?? <path d={dome(60, 102, 13)} />}
             </Vol>
           </g>
           <ellipse cx="60" cy="76" rx="21" ry="4" fill="#000" opacity="0.16" />

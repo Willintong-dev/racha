@@ -46,3 +46,50 @@ input {
 .grad {
   background-image: linear-gradient(135deg, var(--color-accent), var(--color-accent2));
 }
+
+/* ---------------------------------------------------------------------------
+   Animaciones de los personajes (SVG).
+   CSS con transform-box: fill-box → cada parte gira/escala alrededor de SU propio punto
+   (hombro, base de la oreja, centro del ojo), igual en todos los navegadores.
+   --------------------------------------------------------------------------- */
+.cr * {
+  transform-box: fill-box;
+}
+.cr-bob { animation: cr-bob 2.6s ease-in-out infinite; }
+.cr-feet { animation: cr-feet 2.6s ease-in-out 0.15s infinite; }
+.cr-breathe { transform-origin: 50% 100%; animation: cr-breathe 2.6s ease-in-out infinite; }
+.cr-shadow { transform-origin: 50% 50%; animation: cr-shadow 2.6s ease-in-out infinite; }
+.cr-blink { transform-origin: 50% 50%; animation: cr-blink 4.2s linear infinite; }
+.cr-ears { transform-origin: 50% 100%; animation: cr-ears 4.7s ease-in-out infinite; }
+.cr-tail { transform-origin: 0% 100%; animation: cr-tail 2.4s ease-in-out infinite; }
+.cr-jump { animation: cr-jump 0.7s ease-out 1; }
+.cr-arm { transform-origin: 50% 10%; }
+.cr-wave-l { transform-origin: 50% 10%; animation: cr-wave-l 0.7s ease-in-out 1; }
+.cr-wave-r { transform-origin: 50% 10%; animation: cr-wave-r 0.7s ease-in-out 1; }
+.cr-pet { transform-origin: 50% 100%; animation: cr-pet 2.6s ease-in-out infinite; }
+.cr-tassel { transform-origin: 0% 0%; animation: cr-tassel 2.2s ease-in-out infinite; }
+.cr-sparkle { transform-origin: 50% 50%; animation: cr-sparkle 2.8s ease-in-out infinite; }
+
+@keyframes cr-bob { 50% { transform: translateY(-2.2px); } }
+@keyframes cr-feet { 50% { transform: translateY(-1px); } }
+@keyframes cr-breathe { 50% { transform: scaleY(1.04); } }
+@keyframes cr-shadow { 50% { transform: scaleX(0.9); } }
+@keyframes cr-blink { 0%, 92%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.1); } }
+@keyframes cr-ears { 0%, 60%, 100% { transform: rotate(0); } 20% { transform: rotate(-4deg); } 40% { transform: rotate(3deg); } }
+@keyframes cr-tail { 0%, 100% { transform: rotate(0); } 35% { transform: rotate(9deg); } 70% { transform: rotate(-4deg); } }
+@keyframes cr-jump { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-16px); } 80% { transform: translateY(-5px); } }
+@keyframes cr-wave-l { 50% { transform: rotate(140deg); } }
+@keyframes cr-wave-r { 50% { transform: rotate(-140deg); } }
+@keyframes cr-pet {
+  0%, 60%, 100% { transform: translateY(0) scaleY(1); }
+  25% { transform: translateY(-5px) scaleY(1.05); }
+  45% { transform: translateY(0) scaleY(0.93); }
+}
+@keyframes cr-tassel { 0%, 100% { transform: rotate(-9deg); } 50% { transform: rotate(10deg); } }
+@keyframes cr-sparkle { 0%, 70%, 100% { transform: scale(0) rotate(0); } 35% { transform: scale(1) rotate(90deg); } }
+
+.cr-still *,
+.cr-still { animation: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .cr * { animation: none !important; }
+}

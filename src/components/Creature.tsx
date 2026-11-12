@@ -400,6 +400,17 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
 // Accesorios: calculados a partir de la cabeza de cada especie
 // ---------------------------------------------------------------------------
 
+/**
+ * Visera de gorra vista de frente: media luna (borde de arriba poco curvo, de abajo más curvo)
+ * con puntas redondeadas. y = borde superior en los extremos, d = grosor en el centro,
+ * te = grosor en las puntas, sag = cuánto baja el borde superior en el centro.
+ */
+const capBrim = (cx: number, y: number, w: number, d: number, te: number, sag: number) => {
+  const x0 = cx - w / 2
+  const x1 = cx + w / 2
+  return `M${x0} ${y} Q${cx} ${y + 2 * sag} ${x1} ${y} A${te / 2} ${te / 2} 0 0 1 ${x1} ${y + te} Q${cx} ${y + te + 2 * (sag + d - te)} ${x0} ${y + te} A${te / 2} ${te / 2} 0 0 1 ${x0} ${y} Z`
+}
+
 function Hat({ id, s }: { id: string; s: Species }) {
   const h = s.head
   const [lx, ly, rx, ry] = s.eyes
@@ -413,6 +424,34 @@ function Hat({ id, s }: { id: string; s: Species }) {
     // ----- Envuelven la cabeza -----
     case 'hat_gorra':
     case 'hat_vikingo': {
+      if (id === 'hat_gorra' && !sit) {
+        // Gorra puesta (vista de frente): copa que abraza la cabeza con costuras hacia el botón
+        // y visera en media luna que sale hacia nosotros bajo la frente de la copa.
+        const { cw, base, domeH } = capGeometry(s)
+        const ct = base - domeH * 1.15
+        const r = cw / 2
+        const bw = cw * 0.72
+        const bc = cx + cw * 0.04
+        return (
+          <g>
+            {/* Sombra de la visera sobre la frente */}
+            <path d={capBrim(bc, base + 4.5, bw * 0.9, 4.5, 3, 3.5)} fill="#000" opacity="0.18" />
+            <Vol fill="#3d8bff">
+              <path d={`M${cx - r} ${base + 1} C${cx - r} ${ct + domeH * 0.3} ${cx - r * 0.62} ${ct} ${cx} ${ct} C${cx + r * 0.62} ${ct} ${cx + r} ${ct + domeH * 0.3} ${cx + r} ${base + 1} Q${cx} ${base + 5} ${cx - r} ${base + 1} Z`} />
+            </Vol>
+            {/* Costuras de los gajos */}
+            <g stroke="#2b6fe0" strokeWidth="1.6" strokeLinecap="round" fill="none" opacity="0.85">
+              <path d={`M${cx} ${ct + 2} Q${cx - r * 0.36} ${ct + domeH * 0.35} ${cx - r * 0.42} ${base + 2}`} />
+              <path d={`M${cx} ${ct + 2} Q${cx + r * 0.36} ${ct + domeH * 0.35} ${cx + r * 0.42} ${base + 2}`} />
+            </g>
+            <circle cx={cx} cy={ct + 1.5} r="3.2" fill="#2b6fe0" />
+            <Vol fill="#2b6fe0" shine={false}>
+              <path d={capBrim(bc, base - 1.5, bw, 9, 3.5, 3.5)} />
+            </Vol>
+          </g>
+        )
+      }
+      // Casco (y gorrita pequeña de la rana, modo 'sit')
       const helmet = id === 'hat_vikingo'
       // Si envuelve: cubre el ancho completo de la cabeza y baja hasta ~1/4 de su alto
       const { cw, base, domeH } = capGeometry(s)

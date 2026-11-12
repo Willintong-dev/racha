@@ -85,7 +85,7 @@ export interface MonthlyPreset {
 export const DEBT_PRESETS: MonthlyPreset[] = [
   { name: 'Tarjeta de crédito', emoji: '💳' },
   { name: 'Préstamo', emoji: '🏦' },
-  { name: 'Carro o moto', emoji: '🚗' },
+  { name: 'Vehículo', emoji: '🚗' },
   { name: 'Hipoteca', emoji: '🏠' },
   { name: 'Crédito de estudio', emoji: '🎓' },
   { name: 'Otra deuda', emoji: '📄' },

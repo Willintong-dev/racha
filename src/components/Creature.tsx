@@ -231,43 +231,55 @@ const SPECIES: Species[] = [
     snout: <RTri d="M55 57 L65 57 L60 63 Z" fill="#ff9f1c" r={5} />,
     mouth: 'none',
   },
-  // 5 · Unicornio — cabeza mediana-alta
+  // 5 · Unicornio — cabeza mediana-alta, hocico de caballo, crin pastel y cuerno dorado
   {
     name: 'Unicornio', head: { x: 28, y: 17, w: 64, h: 59, rx: 26 },
-    headColor: '#f7f1ff', body: '#f7f1ff', belly: '#ece0ff', arms: '#ebe1ff', feet: '#b9a7f5', eyes: [47, 47, 73, 47],
-    bow: [86, 26],
+    headColor: '#fbf7ff', body: '#fbf7ff', belly: '#ffe3f1', arms: '#f1e9ff', feet: '#b79cff', eyes: [47, 45, 73, 45],
+    bow: [37, 27],
     ears: (
       <>
-        <RTri d="M33 31 L36 11 L50 22 Z" fill="#efe6ff" />
-        <RTri d="M38 25 L39 16 L45 21 Z" fill="#ffadd6" r={3} />
-        <RTri d="M87 31 L84 11 L70 22 Z" fill="#efe6ff" />
-        <RTri d="M82 25 L81 16 L75 21 Z" fill="#ffadd6" r={3} />
+        <RTri d="M34 32 L36 8 L51 22 Z" fill="#f1e9ff" />
+        <RTri d="M38.5 26 L39.5 14 L46.5 21 Z" fill="#ffadd6" r={4} />
+        <RTri d="M86 32 L84 8 L69 22 Z" fill="#f1e9ff" />
+        <RTri d="M81.5 26 L80.5 14 L73.5 21 Z" fill="#ffadd6" r={4} />
       </>
     ),
+    // Crin que cae por el lado derecho de la cara (se ve también con gorra/casco)
     face: (
       <>
-        <circle cx="30" cy="35" r="8" fill="#ffadd6" />
-        <circle cx="27" cy="49" r="7" fill="#c3b1ff" />
-        <circle cx="29" cy="62" r="6" fill="#9cd2ff" />
+        <Vol fill="#8fd0ff"><ellipse cx="90" cy="60" rx="6" ry="10" transform="rotate(16 90 60)" /></Vol>
+        <Vol fill="#b79cff"><ellipse cx="93" cy="46" rx="7.5" ry="12" transform="rotate(-4 93 46)" /></Vol>
+        <Vol fill="#ff9ccf"><ellipse cx="89" cy="31" rx="9" ry="13" transform="rotate(-20 89 31)" /></Vol>
       </>
     ),
+    // Hocico de caballo con orificios
+    snout: (
+      <>
+        <rect x="47" y="56" width="26" height="17" rx="8.5" fill="#ffe3f1" />
+        <rect x="53" y="59.5" width="3" height="2.4" rx="1.2" fill="#e88bb3" />
+        <rect x="64" y="59.5" width="3" height="2.4" rx="1.2" fill="#e88bb3" />
+      </>
+    ),
+    // Flequillo pastel peinado hacia un lado
     crown: (
       <>
-        <circle cx="47" cy="18" r="6" fill="#c3b1ff" />
-        <circle cx="73" cy="18" r="6" fill="#9cd2ff" />
-      </>
+        <Vol fill="#b79cff"><ellipse cx="41" cy="28" rx="9" ry="7" transform="rotate(-35 41 28)" /></Vol>
+        <Vol fill="#8fd0ff"><ellipse cx="69" cy="20" rx="10" ry="6.5" transform="rotate(14 69 20)" /></Vol>
+        <Vol fill="#ff9ccf"><ellipse cx="50" cy="23" rx="14" ry="8.5" transform="rotate(-22 50 23)" /></Vol>
+              </>
     ),
     horn: (
       <>
-        <RTri d="M55 19 L60 -1 L65 19 Z" fill="#fff4d6" r={4} />
-        <path d="M56.5 13 L63.5 11 M57.5 6.5 L62.5 5" stroke="#ff9cc8" strokeWidth="1.8" strokeLinecap="round" />
+        <RTri d="M54.5 20 L60 -2 L65.5 20 Z" fill="#ffd96b" r={4} />
+        <path d="M56 14 L64 11.5 M57.5 7 L62.5 5.5" stroke="#fff3c4" strokeWidth="2" strokeLinecap="round" />
       </>
     ),
+    // Cola de mechones pastel
     tail: (
       <>
-        <circle cx="86" cy="96" r="7" fill="#ffadd6" />
-        <circle cx="94" cy="89" r="6" fill="#c3b1ff" />
-        <circle cx="99" cy="81" r="5" fill="#9cd2ff" />
+        <Vol fill="#8fd0ff"><ellipse cx="99" cy="80" rx="5" ry="10" transform="rotate(25 99 80)" /></Vol>
+        <Vol fill="#b79cff"><ellipse cx="95" cy="88" rx="6" ry="11" transform="rotate(45 95 88)" /></Vol>
+        <Vol fill="#ff9ccf"><ellipse cx="88" cy="94" rx="6" ry="10" transform="rotate(65 88 94)" /></Vol>
       </>
     ),
   },

@@ -3,13 +3,14 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Check, ChevronDown, Trash2 } from 'lucide-react'
 import { useData } from '../lib/data'
 import type { Transaction } from '../lib/db'
-import { CATEGORIES, catById } from '../lib/catalog'
+import { categoryOf } from '../lib/catalog'
 import { addDays, currencySymbol, dayLabel, formatTyping, money, parseAmount, todayStr, uid } from '../lib/format'
 import { rateOf } from '../lib/finance'
 import { deleteTransaction, saveTransaction } from '../lib/actions'
 import { celebrate } from '../lib/celebrate'
 import { BigButton, Chip, NumPad, Sheet } from './ui'
 import { useRateSuggestion } from './currency'
+import { CategoryPicker } from './CategoryPicker'
 
 type Mode = 'gasto' | 'ingreso' | 'transferencia'
 export interface QuickAddOptions {
@@ -73,7 +74,10 @@ function QuickAddForm({ opts, onClose }: { opts: QuickAddOptions; onClose: () =>
   const [amount, setAmount] = useState(e ? String(e.amount) : '')
   const [toAmount, setToAmount] = useState(e?.toAmount ? String(e.toAmount) : '')
   const [field, setField] = useState<'from' | 'to'>('from')
-  const [categoryId, setCategoryId] = useState(e?.categoryId)
+  // Si la categoría del movimiento ya no existe (se borró), se edita como "Otros"
+  const [categoryId, setCategoryId] = useState(
+    e?.categoryId ? categoryOf(e.categoryId, profile.customCategories, e.type === 'ingreso' ? 'ingreso' : 'gasto').id : undefined,
+  )
   const [accountId, setAccountId] = useState(e?.accountId ?? opts.fromId ?? primary?.id)
   const [toAccountId, setToAccountId] = useState(
     e?.toAccountId ?? opts.toId ?? active.find((a) => a.id !== (opts.fromId ?? primary?.id))?.id,
@@ -90,13 +94,12 @@ function QuickAddForm({ opts, onClose }: { opts: QuickAddOptions; onClose: () =>
     for (const t of txs) if (t.categoryId) m.set(t.categoryId, (m.get(t.categoryId) ?? 0) + 1)
     return m
   }, [txs])
-  const cats = CATEGORIES.filter((c) => c.kind === mode).sort((a, b) => (usage.get(b.id) ?? 0) - (usage.get(a.id) ?? 0))
 
   const changeMode = (m: Mode) => {
     if (m === mode) return
     navigator.vibrate?.(10)
     setMode(m)
-    if (catById(categoryId)?.kind !== m) setCategoryId(undefined)
+    if (!categoryId || categoryOf(categoryId, profile.customCategories).kind !== m) setCategoryId(undefined)
   }
 
   const amt = parseAmount(amount)
@@ -221,14 +224,7 @@ function QuickAddForm({ opts, onClose }: { opts: QuickAddOptions; onClose: () =>
           <AccountRow label="A" value={toAccountId} onChange={setToAccountId} exclude={accountId} balances={balances} />
         </div>
       ) : (
-        <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5">
-          {cats.map((c) => (
-            <Chip key={c.id} active={categoryId === c.id} color={c.color} onClick={() => setCategoryId(c.id)}>
-              <span>{c.emoji}</span>
-              {c.name}
-            </Chip>
-          ))}
-        </div>
+        <CategoryPicker key={mode} kind={mode} value={categoryId} onChange={setCategoryId} usage={usage} />
       )}
       {mode === "gasto" && categoryId && fixedCats.has(categoryId) && (
         <p className="-mt-2 text-center text-xs font-bold text-muted">📌 Gasto fijo: ya está en tu presupuesto mensual, no cuenta en tu límite diario.</p>

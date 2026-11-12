@@ -54,6 +54,15 @@ export interface MonthlyItem {
   categoryId?: string
 }
 
+/** Categoría creada por el usuario (mismo formato que las del catálogo) */
+export interface CustomCategory {
+  id: string
+  name: string
+  emoji: string
+  color: string
+  kind: 'gasto' | 'ingreso'
+}
+
 export interface Profile {
   userId: string
   name: string
@@ -82,6 +91,8 @@ export interface Profile {
   freezes?: number
   /** Días (YYYY-MM-DD) salvados con un congelador */
   frozenDays?: string[]
+  /** Categorías creadas por el usuario desde "Otros" (ids `c_…`). Viajan con el perfil a la nube. */
+  customCategories?: CustomCategory[]
   onboarded: boolean
 }
 

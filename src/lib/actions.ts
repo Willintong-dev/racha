@@ -1,4 +1,4 @@
-import { db, type Account, type AccountType, type Debt, type Transaction } from './db'
+import { db, type Account, type AccountType, type CustomCategory, type Debt, type Transaction } from './db'
 import { paidInMonth } from './debts'
 import { FREEZE_MAX, freezesOf, itemsForLevel, type Achievement } from './game'
 import { celebrate } from './celebrate'
@@ -128,6 +128,22 @@ async function learnRate(userId: string, fromId: string, toId: string, amount: n
   if (!learned) return
   await db.profiles.update(userId, { rates })
   celebrate.emit({ kind: 'info', text: `Tasa actualizada: 1 ${learned} = ${money(rates[learned])}` })
+}
+
+/** Crea o edita una categoría propia (vive en el perfil, así se sincroniza sin tablas nuevas). */
+export async function saveCustomCategory(userId: string, cat: CustomCategory) {
+  const p = await db.profiles.get(userId)
+  if (!p) return
+  const list = p.customCategories ?? []
+  const customCategories = list.some((c) => c.id === cat.id) ? list.map((c) => (c.id === cat.id ? cat : c)) : [...list, cat]
+  await db.profiles.update(userId, { customCategories })
+}
+
+/** Borra una categoría propia. Sus movimientos no se tocan: se ven como "Otros". */
+export async function deleteCustomCategory(userId: string, id: string) {
+  const p = await db.profiles.get(userId)
+  if (!p) return
+  await db.profiles.update(userId, { customCategories: (p.customCategories ?? []).filter((c) => c.id !== id) })
 }
 
 export async function setRate(userId: string, code: string, rate: number | undefined) {

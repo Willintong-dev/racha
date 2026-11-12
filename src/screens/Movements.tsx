@@ -3,7 +3,7 @@ import { AnimatePresence, motion, useMotionValue, useTransform } from 'framer-mo
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
 import { useData } from '../lib/data'
 import type { Transaction, TxType } from '../lib/db'
-import { catById } from '../lib/catalog'
+import { categoryOf } from '../lib/catalog'
 import { dayLabel, money, monthLabel, todayStr, uid } from '../lib/format'
 import { deleteTransaction, restoreTransaction, saveTransaction } from '../lib/actions'
 import { celebrate } from '../lib/celebrate'
@@ -23,7 +23,10 @@ interface Seg {
 }
 
 export function Movements() {
-  const { txs, accounts, toMain, main, currencyOf } = useData()
+  const { txs, accounts, toMain, main, currencyOf, profile } = useData()
+  const custom = profile.customCategories
+  /** Categoría ya resuelta de un movimiento (ids borrados o desconocidos → "Otros") */
+  const catOf = (t: Transaction) => categoryOf(t.categoryId, custom, t.type === 'ingreso' ? 'ingreso' : 'gasto')
   const quickAdd = useQuickAdd()
   const [month, setMonth] = useState(() => {
     const d = new Date()
@@ -55,7 +58,7 @@ export function Movements() {
       if (t.type === 'gasto' || t.type === 'ingreso') {
         if (t.type === 'gasto') exp += v
         else inc += v
-        const id = t.categoryId ?? (t.type === 'gasto' ? 'otros_g' : 'otros_i')
+        const id = catOf(t).id
         byCat[t.type].set(id, (byCat[t.type].get(id) ?? 0) + v)
       }
     }
@@ -64,7 +67,7 @@ export function Movements() {
         .filter(([, v]) => v > 0)
         .sort((a, b) => b[1] - a[1])
         .map(([id, v]) => {
-          const c = catById(id)!
+          const c = categoryOf(id, custom)
           return { id, value: v, color: c.color, emoji: c.emoji, name: c.name }
         })
     // Vista "Todo": el mes completo en una dona (los ids con "k:" son tipos, no categorías)
@@ -74,7 +77,7 @@ export function Movements() {
       { id: 'k:pago_deuda', value: debt, color: '#fbbf24', emoji: '📉', name: 'Pagos de deuda' },
     ].filter((s) => s.value > 0)
     return { inc, exp, debt, foreign, segments: { todo, gasto: toSegments(byCat.gasto), ingreso: toSegments(byCat.ingreso) } }
-  }, [monthTxs, toMain, currencyOf, main])
+  }, [monthTxs, toMain, currencyOf, main, custom])
 
   const segments = summary.segments[donutKind]
   const donutTotal = segments.reduce((s, x) => s + x.value, 0)
@@ -96,15 +99,15 @@ export function Movements() {
     const ql = q.trim().toLowerCase()
     return monthTxs.filter((t) => {
       if (type !== 'todos' && t.type !== (type as TxType)) return false
-      if (cat && t.categoryId !== cat) return false
+      if (cat && ((t.type !== 'gasto' && t.type !== 'ingreso') || catOf(t).id !== cat)) return false
       if (acc && t.accountId !== acc && t.toAccountId !== acc) return false
       if (ql) {
-        const hay = `${t.note ?? ''} ${catById(t.categoryId)?.name ?? ''} ${t.amount}`.toLowerCase()
+        const hay = `${t.note ?? ''} ${t.categoryId ? catOf(t).name : ''} ${t.amount}`.toLowerCase()
         if (!hay.includes(ql)) return false
       }
       return true
     })
-  }, [monthTxs, type, cat, acc, q])
+  }, [monthTxs, type, cat, acc, q, custom])
 
   const groups = useMemo(() => {
     const m = new Map<string, Transaction[]>()
@@ -283,8 +286,8 @@ export function Movements() {
       <AnimatePresence>
         {cat && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-2">
-            <Chip active color={catById(cat)?.color} onClick={() => setCat(undefined)}>
-              {catById(cat)?.emoji} {catById(cat)?.name} <X size={14} />
+            <Chip active color={categoryOf(cat, custom).color} onClick={() => setCat(undefined)}>
+              {categoryOf(cat, custom).emoji} {categoryOf(cat, custom).name} <X size={14} />
             </Chip>
           </motion.div>
         )}

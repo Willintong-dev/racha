@@ -31,7 +31,43 @@ export const CATEGORIES: Category[] = [
   { id: 'otros_i', name: 'Otros', emoji: '💰', color: '#64748b', kind: 'ingreso' },
 ]
 
-export const catById = (id?: string) => CATEGORIES.find((c) => c.id === id)
+type Kind = Category['kind']
+
+/** El "Otros" de cada tipo: es el respaldo de cualquier categoría desconocida o borrada. */
+export const otrosOf = (kind: Kind): Category => CATEGORIES.find((c) => c.id === (kind === 'gasto' ? 'otros_g' : 'otros_i'))!
+export const isOtros = (id?: string) => id === 'otros_g' || id === 'otros_i'
+
+/**
+ * Único lugar para traducir un id de categoría a su nombre/emoji/color.
+ * Busca primero en las categorías propias del usuario y luego en el catálogo.
+ * Ids desconocidos (p. ej. una categoría propia que se borró) caen en "Otros" del tipo indicado.
+ */
+export function categoryOf(id: string | undefined, custom?: Category[], kind: Kind = 'gasto'): Category {
+  return custom?.find((c) => c.id === id) ?? CATEGORIES.find((c) => c.id === id) ?? otrosOf(kind)
+}
+
+/** Categorías de un tipo para el selector: las del catálogo y las propias, con "Otros" siempre al final. */
+export function categoriesFor(kind: Kind, custom?: Category[]): Category[] {
+  return [
+    ...CATEGORIES.filter((c) => c.kind === kind && !isOtros(c.id)),
+    ...(custom ?? []).filter((c) => c.kind === kind),
+    otrosOf(kind),
+  ]
+}
+
+/** Íconos para las categorías propias, agrupados para encontrarlos rápido */
+export const CUSTOM_EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
+  { label: 'Comida y salidas', emojis: ['🍕', '☕', '🍺', '🍷', '🍰', '🎮', '🎬', '🎵'] },
+  { label: 'Cuidado personal', emojis: ['💅', '💄', '💇', '🧴', '🪒', '👗', '👟', '💍'] },
+  { label: 'Casa y familia', emojis: ['🏠', '🐶', '🐱', '👶', '🎁', '🔧', '🌱', '❤️'] },
+  { label: 'Salud y estudio', emojis: ['💊', '🦷', '🏋️', '⚽', '📚', '🎓', '📱', '💻'] },
+  { label: 'Transporte y viajes', emojis: ['🚗', '⛽', '🚕', '🚌', '✈️', '🏖️', '⛪', '⭐'] },
+  { label: 'Plata', emojis: ['🧾', '💳', '💼', '🏷️', '💵', '🪙', '🏦', '📈'] },
+]
+export const CUSTOM_EMOJIS = CUSTOM_EMOJI_GROUPS.flatMap((g) => g.emojis)
+/** Colores que se asignan solos a las categorías propias */
+export const CUSTOM_COLORS = ['#f59e0b', '#8b5cf6', '#06b6d4', '#f43f5e', '#10b981', '#3b82f6', '#d946ef', '#84cc16', '#fb923c', '#0ea5e9']
+export const CUSTOM_NAME_MAX = 20
 
 export const ACCOUNT_TYPES: Record<AccountType, { label: string; emoji: string; color: string }> = {
   banco: { label: 'Banco', emoji: '🏦', color: '#6366f1' },

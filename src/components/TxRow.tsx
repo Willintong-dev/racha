@@ -1,5 +1,5 @@
 import type { Transaction } from '../lib/db'
-import { catById } from '../lib/catalog'
+import { categoryOf, type Category } from '../lib/catalog'
 import { money } from '../lib/format'
 import { useAccountName, useData } from '../lib/data'
 
@@ -8,8 +8,10 @@ export function txVisual(
   accName: (id?: string) => string,
   currencyOf: (id?: string) => string,
   debtOf: (id?: string) => { name: string; emoji: string } | undefined = () => undefined,
+  custom?: Category[],
 ) {
-  const cat = catById(tx.categoryId)
+  // Sin categoría se muestra como "Gasto"/"Ingreso"; con un id desconocido o borrado, como "Otros"
+  const cat = tx.categoryId && (tx.type === 'gasto' || tx.type === 'ingreso') ? categoryOf(tx.categoryId, custom, tx.type) : undefined
   const currency = currencyOf(tx.accountId)
   const toCurrency = currencyOf(tx.toAccountId)
   switch (tx.type) {
@@ -65,8 +67,8 @@ export function txVisual(
 
 export function TxRow({ tx }: { tx: Transaction }) {
   const accName = useAccountName()
-  const { currencyOf, debts } = useData()
-  const v = txVisual(tx, accName, currencyOf, (id) => debts.find((d) => d.id === id))
+  const { currencyOf, debts, profile } = useData()
+  const v = txVisual(tx, accName, currencyOf, (id) => debts.find((d) => d.id === id), profile.customCategories)
   return (
     <div className="flex items-center gap-3 px-3 py-3">
       <div

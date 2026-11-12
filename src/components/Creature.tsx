@@ -91,6 +91,8 @@ interface Species {
   eyeStyle?: 'dark' | 'white'
   /** Tamaño de los ojos blancos (1 = normal) */
   eyeScale?: number
+  /** Ojos oscuros sobre mancha oscura (panda): color del aro claro que los separa de la mancha */
+  eyeRim?: string
   /** Geometría de la cabeza SIN fill (si no es el rectángulo redondeado de `head`) */
   headGeo?: ReactNode
   /**
@@ -158,7 +160,7 @@ const SPECIES: Species[] = [
   // 1 · Panda — cabezón y redondo
   {
     name: 'Panda', head: { x: 22, y: 17, w: 76, h: 60, rx: 30 },
-    headColor: '#ffffff', body: '#2f2f3a', belly: '#ffffff', arms: '#2f2f3a', feet: '#2f2f3a', eyes: [46, 46.5, 74, 46.5], eyeStyle: 'white', eyeScale: 0.58, cheeks: [3, 4],
+    headColor: '#ffffff', body: '#2f2f3a', belly: '#ffffff', arms: '#2f2f3a', feet: '#2f2f3a', eyes: [46.5, 48, 73.5, 48], eyeRim: '#4d4d60', cheeks: [3, 4],
     bow: [84, 21],
     ears: (
       <>
@@ -170,10 +172,10 @@ const SPECIES: Species[] = [
     // el ojo va en la parte de arriba de la gota
     face: (
       <g fill="#2f2f3a">
-        <ellipse cx="44" cy="50" rx="6.5" ry="11.5" transform="rotate(26 44 50)" />
-        <circle cx="42.4" cy="53.6" r="6.9" />
-        <ellipse cx="76" cy="50" rx="6.5" ry="11.5" transform="rotate(-26 76 50)" />
-        <circle cx="77.6" cy="53.6" r="6.9" />
+        <ellipse cx="44.5" cy="49.5" rx="8.6" ry="12.6" transform="rotate(24 44.5 49.5)" />
+        <circle cx="42.6" cy="54" r="7.6" />
+        <ellipse cx="75.5" cy="49.5" rx="8.6" ry="12.6" transform="rotate(-24 75.5 49.5)" />
+        <circle cx="77.4" cy="54" r="7.6" />
       </g>
     ),
     snout: <RTri d="M56 61 L64 61 L60 65 Z" fill="#2f2f3a" r={4} />,
@@ -403,7 +405,7 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
           <rect x={rx + 4 + cdx} y={ry + 9 + cdy} width="9" height="5" rx="2.5" fill="#ff7a9c" opacity="0.5" />
 
           {isHappy ? (
-            <g stroke={INK} strokeWidth="3" strokeLinecap="round" fill="none">
+            <g stroke={s.eyeRim ? '#fff' : INK} strokeWidth="3" strokeLinecap="round" fill="none">
               <path d={`M${lx - 5} ${ly + 2} Q${lx} ${ly - 5} ${lx + 5} ${ly + 2}`} />
               <path d={`M${rx - 5} ${ry + 2} Q${rx} ${ry - 5} ${rx + 5} ${ry + 2}`} />
             </g>
@@ -420,6 +422,12 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
                 </>
               ) : (
                 <>
+                  {s.eyeRim && (
+                    <>
+                      <rect x={lx - 6.6} y={ly - 8.6} width="13.2" height="17.2" rx="6.1" fill={s.eyeRim} />
+                      <rect x={rx - 6.6} y={ry - 8.6} width="13.2" height="17.2" rx="6.1" fill={s.eyeRim} />
+                    </>
+                  )}
                   <rect x={lx - 5.5} y={ly - 7.5} width="11" height="15" rx="5" fill={INK} />
                   <rect x={rx - 5.5} y={ry - 7.5} width="11" height="15" rx="5" fill={INK} />
                   <circle cx={lx + 1.8} cy={ly - 3} r="2.4" fill="#fff" />

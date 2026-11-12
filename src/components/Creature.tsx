@@ -251,6 +251,12 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
         <g className="cr-bob">
           {s.tail && <g className="cr-tail">{s.tail}</g>}
 
+          {/* Brazos: dos bracitos quietos a los lados, asomando detrás del cuerpo */}
+          <Vol fill={s.arms}>
+            <rect x="33" y="78" width="10" height="17" rx="5" />
+            <rect x="77" y="78" width="10" height="17" rx="5" />
+          </Vol>
+
           {/* Cuerpo pequeño + barriga */}
           <g className="cr-breathe">
             <Vol fill={s.body}>
@@ -262,22 +268,6 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
           </g>
           {/* La cabeza proyecta sombra sobre el cuerpo */}
           <ellipse cx="60" cy="76" rx="21" ry="4" fill="#000" opacity="0.16" />
-
-          {/* Brazos: cuelgan desde el hombro, pegados al cuerpo; al estar feliz saludan girando desde el hombro */}
-          <g transform="rotate(12 41 76)">
-            <g className={isHappy ? 'cr-wave-l' : 'cr-arm'}>
-              <Vol fill={s.arms}>
-                <rect x="35.5" y="74" width="11" height="19" rx="5.5" />
-              </Vol>
-            </g>
-          </g>
-          <g transform="rotate(-12 79 76)">
-            <g className={isHappy ? 'cr-wave-r' : 'cr-arm'}>
-              <Vol fill={s.arms}>
-                <rect x="73.5" y="74" width="11" height="19" rx="5.5" />
-              </Vol>
-            </g>
-          </g>
 
           {/* Cabeza grande con volumen */}
           {s.ears && <g className="cr-ears">{s.ears}</g>}

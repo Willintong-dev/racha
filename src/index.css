@@ -63,9 +63,6 @@ input {
 .cr-ears { transform-origin: 50% 100%; animation: cr-ears 4.7s ease-in-out infinite; }
 .cr-tail { transform-origin: 0% 100%; animation: cr-tail 2.4s ease-in-out infinite; }
 .cr-jump { animation: cr-jump 0.7s ease-out 1; }
-.cr-arm { transform-origin: 50% 10%; }
-.cr-wave-l { transform-origin: 50% 10%; animation: cr-wave-l 0.7s ease-in-out 1; }
-.cr-wave-r { transform-origin: 50% 10%; animation: cr-wave-r 0.7s ease-in-out 1; }
 .cr-pet { transform-origin: 50% 100%; animation: cr-pet 2.6s ease-in-out infinite; }
 .cr-tassel { transform-origin: 0% 0%; animation: cr-tassel 2.2s ease-in-out infinite; }
 .cr-sparkle { transform-origin: 50% 50%; animation: cr-sparkle 2.8s ease-in-out infinite; }
@@ -78,8 +75,6 @@ input {
 @keyframes cr-ears { 0%, 60%, 100% { transform: rotate(0); } 20% { transform: rotate(-4deg); } 40% { transform: rotate(3deg); } }
 @keyframes cr-tail { 0%, 100% { transform: rotate(0); } 35% { transform: rotate(9deg); } 70% { transform: rotate(-4deg); } }
 @keyframes cr-jump { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-16px); } 80% { transform: translateY(-5px); } }
-@keyframes cr-wave-l { 50% { transform: rotate(140deg); } }
-@keyframes cr-wave-r { 50% { transform: rotate(-140deg); } }
 @keyframes cr-pet {
   0%, 60%, 100% { transform: translateY(0) scaleY(1); }
   25% { transform: translateY(-5px) scaleY(1.05); }

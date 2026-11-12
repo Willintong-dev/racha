@@ -8,6 +8,7 @@ import { AVATARS } from '../lib/catalog'
 import { isUnlocked, unlockLabel, WARDROBE, type Slot, type WardrobeItem } from '../lib/game'
 import { celebrate } from '../lib/celebrate'
 import { Avatar, Page } from '../components/ui'
+import { SPECIES_NAMES } from '../components/Creature'
 
 type Tab = 'base' | Slot
 const TABS: { id: Tab; label: string }[] = [
@@ -49,9 +50,9 @@ export function Wardrobe() {
           initial={{ scale: 0.85, rotate: -4 }}
           animate={{ scale: 1, rotate: 0 }}
           transition={{ type: 'spring', damping: 9, stiffness: 180 }}
-          className="py-8"
+          className="py-6"
         >
-          <Avatar index={profile.avatar} size={140} look={look} />
+          <Avatar index={profile.avatar} size={150} look={look} />
         </motion.div>
         <h1 className="text-2xl font-black">Vestidor</h1>
         <p className="text-sm text-muted">
@@ -87,8 +88,8 @@ export function Wardrobe() {
                   key={i}
                   selected={profile.avatar === i}
                   onClick={() => db.profiles.update(userId, { avatar: i })}
-                  preview={<Avatar index={i} size={56} look={{ ...look, hat: undefined, pet: undefined }} />}
-                  label={['Zorro', 'Panda', 'Rana', 'Tigre', 'Pingüino', 'Unicornio'][i]}
+                  preview={<Avatar index={i} size={64} look={{ ...look, pet: undefined }} still />}
+                  label={SPECIES_NAMES[i]}
                 />
               ))
             : WARDROBE.filter((w) => w.slot === tab).map((item) => {
@@ -102,7 +103,7 @@ export function Wardrobe() {
                     lockLabel={unlockLabel(item)}
                     onClick={() => equip(item)}
                     label={item.name}
-                    preview={<Avatar index={profile.avatar} size={56} look={{ [item.slot]: item.id }} />}
+                    preview={<Avatar index={profile.avatar} size={64} look={{ ...look, [item.slot]: item.id }} still />}
                   />
                 )
               })}
@@ -137,7 +138,7 @@ function Tile({
         selected ? 'border-accent bg-accent/15' : 'border-line bg-card'
       }`}
     >
-      <div className={`pointer-events-none ${locked ? 'opacity-30 grayscale' : ''}`}>{preview}</div>
+      <div className={`pointer-events-none ${locked ? 'opacity-35 grayscale' : ''}`}>{preview}</div>
       <p className={`text-xs font-extrabold ${locked ? 'text-muted' : ''}`}>{label}</p>
       {locked && (
         <>

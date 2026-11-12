@@ -2,162 +2,200 @@ import { motion, type Transition } from 'framer-motion'
 import type { ReactNode } from 'react'
 
 /**
- * Personajes dibujados en SVG con un "esqueleto" común (viewBox 0 0 120 120):
- * cabeza centrada en (60,54) r≈30, ojos ~y57, cuerpo en (60,92), suelo en y≈113.
- * Como todos comparten las mismas medidas, los accesorios caen siempre sobre la cabeza o los ojos.
+ * Personajes en SVG construidos con principios de "shape language":
+ *  - Solo 3 formas base: rectángulos redondeados, medios círculos y triángulos redondeados.
+ *  - Nada puntiagudo (los triángulos se redondean con un trazo del mismo color y uniones redondas).
+ *  - ~15 formas por personaje, vista plana de frente, colores planos y pocos colores, sin contornos.
+ *  - Proporciones exageradas: cabeza grande (rect. redondeado), cuerpo pequeño, ojos grandes que no son píldoras.
+ *  - Detalles flotantes: pies separados del cuerpo, cachetes sueltos.
+ *
+ * Esqueleto común (viewBox 0 0 120 120): cabeza x26–94 y16–76, ojos y≈46, cuerpo y74–102,
+ * pies flotando en y≈107, suelo y≈117. Los accesorios se anclan a la coronilla (y=16) o a los ojos.
  */
 
-const DARK = '#1f1630'
+const INK = '#2b2340'
+
+// ---------------------------------------------------------------------------
+// Formas base
+// ---------------------------------------------------------------------------
+
+/** Medio círculo con la base plana abajo (cúpula). */
+const dome = (cx: number, y: number, r: number) => `M${cx - r} ${y} A${r} ${r} 0 0 1 ${cx + r} ${y} Z`
+/** Medio círculo con la base plana arriba (cuenco). */
+const bowl = (cx: number, y: number, r: number) => `M${cx - r} ${y} A${r} ${r} 0 0 0 ${cx + r} ${y} Z`
+
+/** Triángulo redondeado: relleno + trazo del mismo color con uniones redondas. */
+function RTri({ d, fill, r = 6 }: { d: string; fill: string; r?: number }) {
+  return <path d={d} fill={fill} stroke={fill} strokeWidth={r} strokeLinejoin="round" />
+}
+
+// ---------------------------------------------------------------------------
+// Especies
+// ---------------------------------------------------------------------------
 
 interface Species {
+  name: string
   head: string
   body: string
   belly: string
-  limbs: string
+  arms: string
+  feet: string
   /** Centros de los ojos */
   eyes: [number, number, number, number]
-  /** Ojos con esclerótica blanca (panda, rana) */
-  scleraR?: number
-  /** Cuánto subir/bajar los sombreros respecto a la coronilla estándar (y=24) */
+  /** 'dark' = ojos grandes oscuros con brillo; 'white' = blanco + pupila (rana, panda) */
+  eyeStyle?: 'dark' | 'white'
+  /** Desplazamiento vertical de los sombreros respecto a la coronilla estándar */
   hatDy?: number
   ears?: ReactNode
+  /** Cabeza propia (si no es el rectángulo redondeado estándar) */
+  headShape?: ReactNode
+  /** Marcas de la cara (máscara, manchas, rayas) — debajo de los ojos */
   face?: ReactNode
-  /** Dibujo extra sobre la cabeza (cuerno, melena…) — se oculta si lleva sombrero */
+  /** Hocico + nariz (encima de la máscara) */
+  snout?: ReactNode
+  /** Sobre la cabeza (cuerno, melena) — se oculta con sombrero */
   crown?: ReactNode
   tail?: ReactNode
-  /** Forma de la cabeza si no es un círculo */
-  headShape?: ReactNode
-  mouth?: 'smile' | 'beak' | 'wide'
+  mouth?: 'smile' | 'wide' | 'none'
 }
 
+const HEAD = <rect x="26" y="16" width="68" height="60" rx="26" />
+
 const SPECIES: Species[] = [
-  // 0 · Zorro
+  // 0 · Zorro — naranja, máscara blanca, orejas triangulares
   {
-    head: '#f28c38', body: '#f28c38', belly: '#fff4e6', limbs: '#3b2416', eyes: [49, 57, 71, 57],
+    name: 'Zorro', head: '#ff8a3d', body: '#ff8a3d', belly: '#fff3e3', arms: '#e46f22', feet: '#5b2e1a', eyes: [47, 46, 73, 46],
     ears: (
       <>
-        <path d="M36 38 L30 10 L54 28 Z" fill="#f28c38" />
-        <path d="M37 33 L33 15 L48 27 Z" fill="#3b2416" />
-        <path d="M84 38 L90 10 L66 28 Z" fill="#f28c38" />
-        <path d="M83 33 L87 15 L72 27 Z" fill="#3b2416" />
+        <RTri d="M30 30 L34 6 L52 20 Z" fill="#ff8a3d" />
+        <RTri d="M35 23 L37 12 L45 19 Z" fill="#5b2e1a" r={4} />
+        <RTri d="M90 30 L86 6 L68 20 Z" fill="#ff8a3d" />
+        <RTri d="M85 23 L83 12 L75 19 Z" fill="#5b2e1a" r={4} />
+      </>
+    ),
+    face: <path d="M26 50 Q43 48 60 58 Q77 48 94 50 L94 50 Q94 76 68 76 L52 76 Q26 76 26 50 Z" fill="#fff3e3" />,
+    snout: <RTri d="M56 58 L64 58 L60 63 Z" fill={INK} r={4} />,
+    tail: (
+      <>
+        <path d="M78 96 Q108 100 106 72 Q104 62 94 66 Q98 86 76 88 Z" fill="#ff8a3d" />
+        <path d={dome(100, 74, 7)} transform="rotate(-20 100 74)" fill="#fff3e3" />
+      </>
+    ),
+  },
+  // 1 · Panda — blanco y negro, ojos blancos sobre manchas
+  {
+    name: 'Panda', head: '#ffffff', body: '#2f2f3a', belly: '#ffffff', arms: '#2f2f3a', feet: '#2f2f3a', eyes: [47, 47, 73, 47], eyeStyle: 'white',
+    ears: (
+      <>
+        <circle cx="33" cy="20" r="11" fill="#2f2f3a" />
+        <circle cx="87" cy="20" r="11" fill="#2f2f3a" />
       </>
     ),
     face: (
       <>
-        <path d="M33 58 Q60 46 87 58 Q84 84 60 85 Q36 84 33 58 Z" fill="#fff4e6" />
-        <ellipse cx="60" cy="65" rx="3.2" ry="2.4" fill="#2b1a12" />
+        <rect x="37" y="37" width="20" height="23" rx="10" transform="rotate(-18 47 48)" fill="#2f2f3a" />
+        <rect x="63" y="37" width="20" height="23" rx="10" transform="rotate(18 73 48)" fill="#2f2f3a" />
+      </>
+    ),
+    snout: <RTri d="M56 60 L64 60 L60 64 Z" fill="#2f2f3a" r={4} />,
+  },
+  // 2 · Rana — cabeza ancha, ojos en cúpulas
+  {
+    name: 'Rana', head: '#58c25b', body: '#58c25b', belly: '#d9f7c4', arms: '#43a447', feet: '#43a447', eyes: [41, 26, 79, 26], eyeStyle: 'white', hatDy: -6, mouth: 'wide',
+    headShape: (
+      <>
+        <rect x="20" y="28" width="80" height="48" rx="24" fill="#58c25b" />
+        <circle cx="41" cy="27" r="14" fill="#58c25b" />
+        <circle cx="79" cy="27" r="14" fill="#58c25b" />
+      </>
+    ),
+  },
+  // 3 · Tigre — orejas en cúpula, rayas como triángulos redondeados
+  {
+    name: 'Tigre', head: '#ffa62b', body: '#ffa62b', belly: '#fff3e0', arms: '#f28c00', feet: '#f28c00', eyes: [47, 45, 73, 45],
+    ears: (
+      <>
+        <path d={dome(35, 24, 11)} fill="#ffa62b" />
+        <path d={dome(35, 24, 6)} fill="#ffe0b2" />
+        <path d={dome(85, 24, 11)} fill="#ffa62b" />
+        <path d={dome(85, 24, 6)} fill="#ffe0b2" />
+      </>
+    ),
+    face: (
+      <>
+        <RTri d="M54 17 L66 17 L60 30 Z" fill="#4a2a12" r={4} />
+        <rect x="26" y="40" width="10" height="3.6" rx="1.8" fill="#4a2a12" />
+        <rect x="26" y="47" width="7" height="3.6" rx="1.8" fill="#4a2a12" />
+        <rect x="84" y="40" width="10" height="3.6" rx="1.8" fill="#4a2a12" />
+        <rect x="87" y="47" width="7" height="3.6" rx="1.8" fill="#4a2a12" />
+      </>
+    ),
+    snout: (
+      <>
+        <path d={bowl(60, 55, 14)} fill="#fff3e0" />
+        <RTri d="M56 56 L64 56 L60 60 Z" fill="#ff6f91" r={4} />
       </>
     ),
     tail: (
       <>
-        <path d="M78 100 Q112 98 108 70 Q106 58 96 64 Q100 84 76 92 Z" fill="#f28c38" />
-        <path d="M108 70 Q106 58 96 64 Q99 70 106 76 Z" fill="#fff4e6" />
+        <path d="M80 98 Q104 102 104 80" fill="none" stroke="#ffa62b" strokeWidth="8" strokeLinecap="round" />
+        <path d="M100 86 L108 84" stroke="#4a2a12" strokeWidth="3.5" strokeLinecap="round" />
       </>
     ),
   },
-  // 1 · Panda
+  // 4 · Pingüino — máscara blanca, pico triangular redondeado
   {
-    head: '#ffffff', body: '#ffffff', belly: '#f1f1f6', limbs: '#2a2a35', eyes: [49, 57, 71, 57], scleraR: 4.2,
+    name: 'Pingüino', head: '#33415c', body: '#33415c', belly: '#ffffff', arms: '#2a3650', feet: '#ff9f1c', eyes: [48, 45, 72, 45],
+    face: (
+      <>
+        <rect x="32" y="28" width="56" height="44" rx="20" fill="#ffffff" />
+        <path d={dome(60, 30, 10)} fill="#33415c" />
+      </>
+    ),
+    snout: <RTri d="M54 56 L66 56 L60 63 Z" fill="#ff9f1c" r={5} />,
+    mouth: 'none',
+  },
+  // 5 · Unicornio — lila claro, melena de círculos, cuerno triangular redondeado
+  {
+    name: 'Unicornio', head: '#f7f1ff', body: '#f7f1ff', belly: '#ece0ff', arms: '#e6dcff', feet: '#b9a7f5', eyes: [47, 47, 73, 47],
     ears: (
       <>
-        <circle cx="37" cy="30" r="10" fill="#2a2a35" />
-        <circle cx="83" cy="30" r="10" fill="#2a2a35" />
+        <RTri d="M32 30 L36 10 L50 22 Z" fill="#f7f1ff" />
+        <RTri d="M37 24 L39 15 L45 21 Z" fill="#ffadd6" r={3} />
+        <RTri d="M88 30 L84 10 L70 22 Z" fill="#f7f1ff" />
+        <RTri d="M83 24 L81 15 L75 21 Z" fill="#ffadd6" r={3} />
       </>
     ),
     face: (
       <>
-        <ellipse cx="48" cy="57" rx="8" ry="10" transform="rotate(-28 48 57)" fill="#2a2a35" />
-        <ellipse cx="72" cy="57" rx="8" ry="10" transform="rotate(28 72 57)" fill="#2a2a35" />
-        <ellipse cx="60" cy="67" rx="3.4" ry="2.4" fill="#2a2a35" />
-      </>
-    ),
-  },
-  // 2 · Rana
-  {
-    head: '#6cc04a', body: '#6cc04a', belly: '#d8f5b8', limbs: '#4fa233', eyes: [44, 34, 76, 34], scleraR: 7, hatDy: -10, mouth: 'wide',
-    headShape: (
-      <>
-        <ellipse cx="60" cy="58" rx="33" ry="26" fill="#6cc04a" />
-        <circle cx="44" cy="35" r="12" fill="#6cc04a" />
-        <circle cx="76" cy="35" r="12" fill="#6cc04a" />
-      </>
-    ),
-  },
-  // 3 · Tigre
-  {
-    head: '#f59e0b', body: '#f59e0b', belly: '#fff7ed', limbs: '#f59e0b', eyes: [49, 56, 71, 56],
-    ears: (
-      <>
-        <circle cx="37" cy="31" r="9" fill="#f59e0b" />
-        <circle cx="37" cy="31" r="5" fill="#ffd6a5" />
-        <circle cx="83" cy="31" r="9" fill="#f59e0b" />
-        <circle cx="83" cy="31" r="5" fill="#ffd6a5" />
-      </>
-    ),
-    face: (
-      <>
-        <ellipse cx="60" cy="68" rx="14" ry="10" fill="#fff7ed" />
-        <g stroke="#3b2416" strokeWidth="3" strokeLinecap="round" fill="none">
-          <path d="M53 27 Q55 32 53 37" />
-          <path d="M60 25 L60 36" />
-          <path d="M67 27 Q65 32 67 37" />
-          <path d="M31 52 L38 54" />
-          <path d="M31 60 L37 60" />
-          <path d="M89 52 L82 54" />
-          <path d="M89 60 L83 60" />
-        </g>
-        <path d="M56 63 L64 63 L60 67 Z" fill="#f472b6" />
-      </>
-    ),
-    tail: <path d="M80 100 Q104 104 104 84 Q104 76 98 78" fill="none" stroke="#f59e0b" strokeWidth="7" strokeLinecap="round" />,
-  },
-  // 4 · Pingüino
-  {
-    head: '#2e3a59', body: '#2e3a59', belly: '#ffffff', limbs: '#f59e0b', eyes: [50, 55, 70, 55], mouth: 'beak',
-    face: <path d="M60 38 C50 26 32 36 36 56 C38 72 52 80 60 80 C68 80 82 72 84 56 C88 36 70 26 60 38 Z" fill="#ffffff" />,
-  },
-  // 5 · Unicornio
-  {
-    head: '#fbf7ff', body: '#fbf7ff', belly: '#f3e8ff', limbs: '#c4b5fd', eyes: [49, 57, 71, 57],
-    ears: (
-      <>
-        <path d="M38 36 L34 16 L52 28 Z" fill="#fbf7ff" />
-        <path d="M39 32 L37 21 L47 28 Z" fill="#f9a8d4" />
-        <path d="M82 36 L86 16 L68 28 Z" fill="#fbf7ff" />
-        <path d="M81 32 L83 21 L73 28 Z" fill="#f9a8d4" />
-      </>
-    ),
-    face: (
-      <>
-        <circle cx="34" cy="44" r="8" fill="#f9a8d4" />
-        <circle cx="31" cy="56" r="7" fill="#c4b5fd" />
-        <circle cx="33" cy="67" r="6" fill="#93c5fd" />
+        <circle cx="28" cy="34" r="8" fill="#ffadd6" />
+        <circle cx="25" cy="48" r="7" fill="#c3b1ff" />
+        <circle cx="27" cy="61" r="6" fill="#9cd2ff" />
       </>
     ),
     crown: (
       <>
-        <circle cx="48" cy="27" r="7" fill="#c4b5fd" />
-        <circle cx="72" cy="27" r="7" fill="#93c5fd" />
-        <path d="M55 28 L60 3 L65 28 Z" fill="#facc15" />
-        <path d="M57 20 L63 18 M58 13 L62 12" stroke="#ca8a04" strokeWidth="1.5" />
+        <RTri d="M55 18 L60 -2 L65 18 Z" fill="#ffd23f" r={4} />
+        <circle cx="47" cy="17" r="6" fill="#c3b1ff" />
+        <circle cx="73" cy="17" r="6" fill="#9cd2ff" />
       </>
     ),
     tail: (
       <>
-        <circle cx="86" cy="96" r="7" fill="#f9a8d4" />
-        <circle cx="93" cy="90" r="6" fill="#c4b5fd" />
-        <circle cx="97" cy="82" r="5" fill="#93c5fd" />
+        <circle cx="86" cy="96" r="7" fill="#ffadd6" />
+        <circle cx="94" cy="89" r="6" fill="#c3b1ff" />
+        <circle cx="99" cy="81" r="5" fill="#9cd2ff" />
       </>
     ),
   },
 ]
 
-export const SPECIES_NAMES = ['Zorro', 'Panda', 'Rana', 'Tigre', 'Pingüino', 'Unicornio']
+export const SPECIES_NAMES = SPECIES.map((s) => s.name)
 
 const loop = (duration: number, extra: Partial<Transition> = {}): Transition => ({ repeat: Infinity, duration, ease: 'easeInOut', ...extra })
 const box = (origin: string) => ({ transformBox: 'fill-box' as const, transformOrigin: origin })
 
-/** Personaje completo (como <g>, para usar dentro de un <svg viewBox> de 120×120). */
+/** Personaje completo (como <g>, dentro de un <svg> con viewBox que contenga 0 0 120 120). */
 export function Character({ species, hat, happy = 0, still }: { species: number; hat?: string; happy?: number; still?: boolean }) {
   const s = SPECIES[species] ?? SPECIES[0]
   const [lx, ly, rx, ry] = s.eyes
@@ -168,177 +206,187 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
   return (
     <motion.g
       key={happy}
-      // Al tocar: salto con estiramiento
       initial={isHappy ? { y: 0 } : false}
       animate={isHappy ? { y: [0, -16, 0, -5, 0] } : undefined}
       transition={{ duration: 0.7 }}
     >
-      {/* Sombra en el suelo */}
+      {/* Sombra suave */}
       <motion.ellipse
-        cx="60" cy="114" rx="24" ry="3.5" fill="#000" opacity="0.22"
-        animate={anim ? { scaleX: [1, 0.94, 1] } : undefined}
-        transition={loop(2.6)}
-        style={box('center')}
+        cx="60" cy="117" rx="22" ry="3" fill="#000" opacity="0.2"
+        animate={anim ? { scaleX: [1, 0.92, 1] } : undefined} transition={loop(2.6)} style={box('center')}
       />
-      {/* Todo el cuerpo flota un poco */}
-      <motion.g animate={anim ? { y: [0, -1.8, 0] } : undefined} transition={loop(2.6)}>
+
+      {/* Pies flotantes: se mueven un poco desfasados del cuerpo */}
+      <motion.g animate={anim ? { y: [0, -1, 0] } : undefined} transition={loop(2.6, { delay: 0.15 })}>
+        <path d={bowl(50, 106, 7)} fill={s.feet} />
+        <path d={bowl(70, 106, 7)} fill={s.feet} />
+      </motion.g>
+
+      <motion.g animate={anim ? { y: [0, -2.2, 0] } : undefined} transition={loop(2.6)}>
         {s.tail && (
-          <motion.g animate={anim ? { rotate: [0, 10, 0, -4, 0] } : undefined} transition={loop(1.6, { repeatDelay: 0.8 })} style={box('0% 100%')}>
+          <motion.g animate={anim ? { rotate: [0, 9, 0, -4, 0] } : undefined} transition={loop(1.6, { repeatDelay: 0.8 })} style={box('0% 100%')}>
             {s.tail}
           </motion.g>
         )}
-        {/* Pies */}
-        <ellipse cx="49" cy="110" rx="7.5" ry="4" fill={s.limbs} />
-        <ellipse cx="71" cy="110" rx="7.5" ry="4" fill={s.limbs} />
-        {/* Cuerpo que respira */}
-        <motion.g animate={anim ? { scaleY: [1, 1.035, 1] } : undefined} transition={loop(2.6)} style={box('50% 100%')}>
-          <ellipse cx="60" cy="92" rx="23" ry="20" fill={s.body} />
-          <ellipse cx="60" cy="96" rx="14" ry="13" fill={s.belly} />
+
+        {/* Cuerpo pequeño (rect. redondeado) + barriga (cúpula) */}
+        <motion.g animate={anim ? { scaleY: [1, 1.04, 1] } : undefined} transition={loop(2.6)} style={box('50% 100%')}>
+          <rect x="39" y="72" width="42" height="30" rx="14" fill={s.body} />
+          <path d={dome(60, 102, 13)} fill={s.belly} />
         </motion.g>
-        {/* Brazos: saludan al estar feliz */}
-        <motion.ellipse
-          cx="38" cy="90" rx="6" ry="9.5" fill={species === 1 ? '#2a2a35' : s.body}
-          stroke="rgba(0,0,0,.08)"
-          animate={isHappy ? { rotate: [20, -40, 20] } : { rotate: 20 }}
-          transition={{ duration: 0.6 }}
-          style={box('70% 20%')}
+
+        {/* Brazos: pastillas cortas; saludan al estar feliz */}
+        <motion.rect
+          x="31" y="78" width="10" height="17" rx="5" fill={s.arms}
+          animate={isHappy ? { rotate: [25, -50, 25] } : { rotate: 25 }} transition={{ duration: 0.6 }} style={box('80% 15%')}
         />
-        <motion.ellipse
-          cx="82" cy="90" rx="6" ry="9.5" fill={species === 1 ? '#2a2a35' : s.body}
-          stroke="rgba(0,0,0,.08)"
-          animate={isHappy ? { rotate: [-20, 40, -20] } : { rotate: -20 }}
-          transition={{ duration: 0.6 }}
-          style={box('30% 20%')}
+        <motion.rect
+          x="79" y="78" width="10" height="17" rx="5" fill={s.arms}
+          animate={isHappy ? { rotate: [-25, 50, -25] } : { rotate: -25 }} transition={{ duration: 0.6 }} style={box('20% 15%')}
         />
 
-        {/* Cabeza */}
-        <g>
-          {s.ears && (
-            <motion.g animate={anim ? { rotate: [0, -5, 0, 4, 0] } : undefined} transition={loop(1.2, { repeatDelay: 3.5 })} style={box('50% 100%')}>
-              {s.ears}
-            </motion.g>
-          )}
-          {s.headShape ?? <circle cx="60" cy="54" r="30" fill={s.head} />}
-          {s.face}
-          {!wearsHat && s.crown}
+        {/* Cabeza grande */}
+        {s.ears && (
+          <motion.g animate={anim ? { rotate: [0, -4, 0, 3, 0] } : undefined} transition={loop(1.2, { repeatDelay: 3.5 })} style={box('50% 100%')}>
+            {s.ears}
+          </motion.g>
+        )}
+        {s.headShape ?? <g fill={s.head}>{HEAD}</g>}
+        {s.face}
+        {!wearsHat && s.crown}
 
-          {/* Mejillas */}
-          <ellipse cx={lx - 7} cy={ly + 9} rx="5" ry="3" fill="#ff7aa2" opacity="0.45" />
-          <ellipse cx={rx + 7} cy={ry + 9} rx="5" ry="3" fill="#ff7aa2" opacity="0.45" />
+        {/* Cachetes flotantes */}
+        <rect x={lx - 13} y={ly + 9} width="9" height="5" rx="2.5" fill="#ff7a9c" opacity="0.5" />
+        <rect x={rx + 4} y={ry + 9} width="9" height="5" rx="2.5" fill="#ff7a9c" opacity="0.5" />
 
-          {/* Ojos: parpadean; felices = ^ ^ */}
-          {isHappy ? (
-            <g stroke={DARK} strokeWidth="2.6" strokeLinecap="round" fill="none">
-              <path d={`M${lx - 4.5} ${ly + 1.5} Q${lx} ${ly - 4} ${lx + 4.5} ${ly + 1.5}`} />
-              <path d={`M${rx - 4.5} ${ry + 1.5} Q${rx} ${ry - 4} ${rx + 4.5} ${ry + 1.5}`} />
-            </g>
-          ) : (
-            <motion.g
-              animate={anim ? { scaleY: [1, 1, 0.1, 1] } : undefined}
-              transition={{ repeat: Infinity, duration: 4.2, times: [0, 0.92, 0.96, 1] }}
-              style={box('center')}
-            >
-              {s.scleraR && (
-                <>
-                  <circle cx={lx} cy={ly} r={s.scleraR} fill="#fff" />
-                  <circle cx={rx} cy={ry} r={s.scleraR} fill="#fff" />
-                </>
-              )}
-              <circle cx={lx} cy={ly} r={s.scleraR ? s.scleraR * 0.62 : 4.6} fill={DARK} />
-              <circle cx={rx} cy={ry} r={s.scleraR ? s.scleraR * 0.62 : 4.6} fill={DARK} />
-              <circle cx={lx + 1.5} cy={ly - 1.6} r="1.6" fill="#fff" />
-              <circle cx={rx + 1.5} cy={ry - 1.6} r="1.6" fill="#fff" />
-            </motion.g>
-          )}
+        {/* Ojos grandes (rect. redondeados, no píldoras). Parpadean; felices = arcos */}
+        {isHappy ? (
+          <g stroke={INK} strokeWidth="3" strokeLinecap="round" fill="none">
+            <path d={`M${lx - 5} ${ly + 2} Q${lx} ${ly - 5} ${lx + 5} ${ly + 2}`} />
+            <path d={`M${rx - 5} ${ry + 2} Q${rx} ${ry - 5} ${rx + 5} ${ry + 2}`} />
+          </g>
+        ) : (
+          <motion.g
+            animate={anim ? { scaleY: [1, 1, 0.1, 1] } : undefined}
+            transition={{ repeat: Infinity, duration: 4.2, times: [0, 0.92, 0.96, 1] }}
+            style={box('center')}
+          >
+            {s.eyeStyle === 'white' ? (
+              <>
+                <rect x={lx - 7.5} y={ly - 8} width="15" height="16" rx="7" fill="#fff" />
+                <rect x={rx - 7.5} y={ry - 8} width="15" height="16" rx="7" fill="#fff" />
+                <rect x={lx - 3} y={ly - 4.5} width="8" height="10" rx="4" fill={INK} />
+                <rect x={rx - 5} y={ry - 4.5} width="8" height="10" rx="4" fill={INK} />
+                <circle cx={lx + 2.6} cy={ly - 2} r="1.6" fill="#fff" />
+                <circle cx={rx + 0.6} cy={ry - 2} r="1.6" fill="#fff" />
+              </>
+            ) : (
+              <>
+                <rect x={lx - 5.5} y={ly - 7.5} width="11" height="15" rx="5" fill={INK} />
+                <rect x={rx - 5.5} y={ry - 7.5} width="11" height="15" rx="5" fill={INK} />
+                <circle cx={lx + 1.8} cy={ly - 3} r="2.3" fill="#fff" />
+                <circle cx={rx + 1.8} cy={ry - 3} r="2.3" fill="#fff" />
+                <circle cx={lx - 1.6} cy={ly + 3.4} r="1" fill="#fff" />
+                <circle cx={rx - 1.6} cy={ry + 3.4} r="1" fill="#fff" />
+              </>
+            )}
+          </motion.g>
+        )}
 
-          {/* Boca */}
-          {s.mouth === 'beak' ? (
-            <path d="M54 63 L66 63 L60 70 Z" fill="#f59e0b" />
-          ) : s.mouth === 'wide' ? (
-            <path d={isHappy ? 'M44 64 Q60 82 76 64 Z' : 'M44 66 Q60 78 76 66'} stroke={DARK} strokeWidth="2.4" strokeLinecap="round" fill={isHappy ? '#7a2e3a' : 'none'} />
-          ) : (
-            <path
-              d={isHappy ? 'M55 69 Q60 77 65 69 Z' : 'M56 70 Q60 73.5 64 70'}
-              stroke={DARK} strokeWidth="2" strokeLinecap="round" fill={isHappy ? '#7a2e3a' : 'none'}
-            />
-          )}
+        {s.snout}
 
-          {hat && <Hat id={hat} dy={s.hatDy ?? 0} eyes={s.eyes} />}
-        </g>
+        {/* Boca */}
+        {s.mouth === 'wide' ? (
+          <path
+            d={isHappy ? 'M44 56 Q60 74 76 56 Z' : 'M46 58 Q60 68 74 58'}
+            stroke={INK} strokeWidth="3" strokeLinecap="round" fill={isHappy ? '#8c2f45' : 'none'}
+          />
+        ) : s.mouth === 'none' ? null : isHappy ? (
+          <path d="M54 66 Q60 75 66 66 Z" fill="#8c2f45" stroke={INK} strokeWidth="2" strokeLinejoin="round" />
+        ) : (
+          <path d="M55 66 Q57.5 69 60 66 Q62.5 69 65 66" stroke={INK} strokeWidth="2.2" strokeLinecap="round" fill="none" />
+        )}
+
+        {hat && <Hat id={hat} dy={s.hatDy ?? 0} eyes={s.eyes} />}
       </motion.g>
     </motion.g>
   )
 }
 
-/** Accesorios, dibujados sobre la coronilla estándar (y≈24) o sobre los ojos. */
+// ---------------------------------------------------------------------------
+// Accesorios (dibujados para una coronilla en y=30 y escalados al ancho de la cabeza)
+// ---------------------------------------------------------------------------
+
 function Hat({ id, dy, eyes }: { id: string; dy: number; eyes: [number, number, number, number] }) {
   const [lx, ly, rx, ry] = eyes
+  // Lleva la base del sombrero (y=30) a la coronilla (y=22) y lo agranda al ancho de la cabeza
+  const onHead = `translate(0 ${dy - 8}) translate(60 30) scale(1.22) translate(-60 -30)`
   switch (id) {
     case 'hat_gorra':
       return (
-        <g transform={`translate(0 ${dy}) rotate(-8 60 30)`}>
-          <path d="M37 31 Q37 6 60 6 Q83 6 83 31 Z" fill="#3b82f6" />
-          <path d="M60 6 L60 31 M48 9 Q46 20 47 31 M72 9 Q74 20 73 31" stroke="#2563eb" strokeWidth="1.3" fill="none" />
-          <path d="M58 30 Q88 25 104 33 Q90 39 60 35 Z" fill="#1d4ed8" />
-          <circle cx="60" cy="6" r="2.6" fill="#1e3a8a" />
+        <g transform={`${onHead} rotate(-8 60 30)`}>
+          <path d={dome(60, 31, 23)} fill="#3d8bff" />
+          <path d="M60 8 L60 31" stroke="#2b6fe0" strokeWidth="2" />
+          <rect x="56" y="27" width="46" height="7" rx="3.5" fill="#2b6fe0" />
+          <circle cx="60" cy="8" r="3" fill="#2b6fe0" />
         </g>
       )
     case 'hat_sombrero':
       return (
-        <g transform={`translate(0 ${dy}) rotate(-6 60 28)`}>
-          <rect x="43" y="0" width="34" height="28" rx="3" fill="#111827" />
-          <rect x="43" y="19" width="34" height="6" fill="#dc2626" />
-          <ellipse cx="60" cy="28" rx="27" ry="5" fill="#1f2937" />
+        <g transform={`${onHead} rotate(-6 60 28)`}>
+          <rect x="44" y="2" width="32" height="27" rx="5" fill="#2b2340" />
+          <rect x="44" y="19" width="32" height="6" fill="#ff4d6d" />
+          <rect x="33" y="26" width="54" height="7" rx="3.5" fill="#3a3152" />
         </g>
       )
     case 'hat_corona':
       return (
-        <g transform={`translate(0 ${dy})`}>
-          <path d="M40 31 L41 12 L51 22 L60 5 L69 22 L79 12 L80 31 Z" fill="#facc15" stroke="#ca8a04" strokeWidth="1.5" strokeLinejoin="round" />
-          <circle cx="60" cy="24" r="3.2" fill="#ef4444" />
-          <circle cx="48" cy="27" r="2.2" fill="#3b82f6" />
-          <circle cx="72" cy="27" r="2.2" fill="#22c55e" />
-          <motion.path
-            d="M86 10 L88 15 L93 17 L88 19 L86 24 L84 19 L79 17 L84 15 Z" fill="#fef08a"
-            animate={{ scale: [0, 1, 0], rotate: [0, 90] }} transition={loop(1.8, { repeatDelay: 1 })} style={box('center')}
-          />
+        <g transform={onHead}>
+          <RTri d="M41 30 L42 13 L51 22 L60 7 L69 22 L78 13 L79 30 Z" fill="#ffd23f" r={5} />
+          <circle cx="60" cy="24" r="3.4" fill="#ff4d6d" />
+          <circle cx="48" cy="26" r="2.4" fill="#3d8bff" />
+          <circle cx="72" cy="26" r="2.4" fill="#2ec27e" />
+          <motion.g animate={{ scale: [0, 1, 0], rotate: [0, 90] }} transition={loop(1.8, { repeatDelay: 1 })} style={box('center')}>
+            <RTri d="M88 8 L90 14 L96 16 L90 18 L88 24 L86 18 L80 16 L86 14 Z" fill="#fff3a6" r={1.5} />
+          </motion.g>
         </g>
       )
     case 'hat_moño':
       return (
-        <g transform={`translate(0 ${dy})`}>
-          <ellipse cx="73" cy="27" rx="8" ry="6" transform="rotate(-25 73 27)" fill="#ec4899" />
-          <ellipse cx="89" cy="27" rx="8" ry="6" transform="rotate(25 89 27)" fill="#ec4899" />
-          <circle cx="81" cy="28" r="3.6" fill="#be185d" />
+        <g transform={`translate(0 ${dy - 8})`}>
+          <RTri d="M80 30 L68 22 L68 38 Z" fill="#ff5fa2" r={6} />
+          <RTri d="M80 30 L92 22 L92 38 Z" fill="#ff5fa2" r={6} />
+          <rect x="76.5" y="26" width="7" height="8" rx="3.5" fill="#d93d82" />
         </g>
       )
     case 'hat_birrete':
       return (
-        <g transform={`translate(0 ${dy})`}>
-          <path d="M44 25 L44 33 Q60 39 76 33 L76 25 Z" fill="#111827" />
-          <path d="M28 20 L60 7 L92 20 L60 32 Z" fill="#1f2937" />
-          <circle cx="60" cy="19" r="2" fill="#facc15" />
+        <g transform={onHead}>
+          <rect x="44" y="22" width="32" height="12" rx="5" fill="#2b2340" />
+          <RTri d="M30 20 L60 9 L90 20 L60 30 Z" fill="#3a3152" r={4} />
+          <circle cx="60" cy="19" r="2.2" fill="#ffd23f" />
           <motion.g animate={{ rotate: [-8, 10, -8] }} transition={loop(2.2)} style={{ transformBox: 'view-box', transformOrigin: '60px 19px' }}>
-            <path d="M60 19 L85 23 L85 36" stroke="#facc15" strokeWidth="1.8" fill="none" />
-            <path d="M82 35 L88 35 L87 43 L83 43 Z" fill="#facc15" />
+            <path d="M60 19 L84 23 L84 34" stroke="#ffd23f" strokeWidth="2" fill="none" strokeLinecap="round" />
+            <rect x="81" y="33" width="6" height="9" rx="2.5" fill="#ffd23f" />
           </motion.g>
         </g>
       )
     case 'hat_vikingo':
       return (
-        <g transform={`translate(0 ${dy})`}>
-          <path d="M35 33 Q35 6 60 6 Q85 6 85 33 Z" fill="#facc15" />
-          <rect x="56" y="6" width="8" height="27" fill="#eab308" />
-          <ellipse cx="60" cy="33" rx="29" ry="4.5" fill="#ca8a04" />
+        <g transform={onHead}>
+          <path d={dome(60, 32, 25)} fill="#ffc62b" />
+          <rect x="56" y="7" width="8" height="25" rx="3" fill="#f2a900" />
+          <rect x="31" y="29" width="58" height="7" rx="3.5" fill="#f2a900" />
         </g>
       )
     case 'hat_gafas':
       return (
         <g>
-          <rect x={lx - 9} y={ly - 6.5} width="18" height="12" rx="5" fill="#111827" />
-          <rect x={rx - 9} y={ry - 6.5} width="18" height="12" rx="5" fill="#111827" />
-          <path d={`M${lx + 9} ${ly - 1} L${rx - 9} ${ry - 1}`} stroke="#111827" strokeWidth="2.5" />
-          <path d={`M${lx - 6} ${ly - 3} L${lx - 1} ${ly - 3} M${rx - 6} ${ry - 3} L${rx - 1} ${ry - 3}`} stroke="#fff" strokeWidth="1.6" strokeLinecap="round" opacity="0.7" />
+          <rect x={lx - 10} y={ly - 8} width="20" height="16" rx="7" fill="#2b2340" />
+          <rect x={rx - 10} y={ry - 8} width="20" height="16" rx="7" fill="#2b2340" />
+          <rect x={lx + 9} y={ly - 2.5} width={rx - lx - 18} height="3.5" rx="1.75" fill="#2b2340" />
+          <rect x={lx - 6} y={ly - 5} width="6" height="2.6" rx="1.3" fill="#fff" opacity="0.6" />
+          <rect x={rx - 6} y={ry - 5} width="6" height="2.6" rx="1.3" fill="#fff" opacity="0.6" />
         </g>
       )
     default:
@@ -346,15 +394,18 @@ function Hat({ id, dy, eyes }: { id: string; dy: number; eyes: [number, number, 
   }
 }
 
-/** Mascotas (como <g> de 40×40). Dan saltitos con un poco de aplastamiento. */
+// ---------------------------------------------------------------------------
+// Mascotas (como <g> de 40×40): mismas reglas — formas redondeadas, ojos grandes, pies flotantes
+// ---------------------------------------------------------------------------
+
 export function Pet({ id, still }: { id: string; still?: boolean }) {
   const art = PETS[id]
   if (!art) return null
   return (
     <g>
-      <ellipse cx="20" cy="39" rx="10" ry="2" fill="#000" opacity="0.2" />
+      <ellipse cx="20" cy="40" rx="9" ry="1.8" fill="#000" opacity="0.2" />
       <motion.g
-        animate={still ? undefined : { y: [0, -5, 0, 0], scaleY: [1, 1.04, 0.94, 1] }}
+        animate={still ? undefined : { y: [0, -5, 0, 0], scaleY: [1, 1.05, 0.94, 1] }}
         transition={{ repeat: Infinity, duration: 1.4, times: [0, 0.35, 0.7, 1], repeatDelay: 1.2 }}
         style={box('50% 100%')}
       >
@@ -364,77 +415,94 @@ export function Pet({ id, still }: { id: string; still?: boolean }) {
   )
 }
 
-const eyes = (y = 18, x1 = 15.5, x2 = 24.5) => (
+/** Ojos de mascota: rectángulos redondeados oscuros con brillo */
+const petEyes = (y = 18, x1 = 15, x2 = 25) => (
   <>
-    <circle cx={x1} cy={y} r="2" fill={DARK} />
-    <circle cx={x2} cy={y} r="2" fill={DARK} />
-    <circle cx={x1 + 0.7} cy={y - 0.7} r="0.7" fill="#fff" />
-    <circle cx={x2 + 0.7} cy={y - 0.7} r="0.7" fill="#fff" />
+    <rect x={x1 - 2.4} y={y - 3.2} width="4.8" height="6.4" rx="2.2" fill={INK} />
+    <rect x={x2 - 2.4} y={y - 3.2} width="4.8" height="6.4" rx="2.2" fill={INK} />
+    <circle cx={x1 + 0.8} cy={y - 1.3} r="1" fill="#fff" />
+    <circle cx={x2 + 0.8} cy={y - 1.3} r="1" fill="#fff" />
+  </>
+)
+const petFeet = (c: string) => (
+  <>
+    <path d={bowl(15.5, 35.5, 3.2)} fill={c} />
+    <path d={bowl(24.5, 35.5, 3.2)} fill={c} />
   </>
 )
 
 const PETS: Record<string, ReactNode> = {
   pet_pollito: (
     <>
-      <path d="M14 8 Q16 3 19 7 Q21 2 23 7" stroke="#facc15" strokeWidth="2" fill="none" strokeLinecap="round" />
-      <circle cx="20" cy="20" r="11" fill="#fde047" />
-      {eyes(18)}
-      <path d="M17.5 22 L22.5 22 L20 25.5 Z" fill="#f97316" />
-      <path d="M7 25 L11 21 L15 26 L20 21 L25 26 L29 21 L33 25 Q33 37 20 37 Q7 37 7 25 Z" fill="#fffbeb" stroke="#e7e5e4" strokeWidth="0.8" />
+      {petFeet('#ff9f1c')}
+      <rect x="9" y="8" width="22" height="25" rx="11" fill="#ffd93d" />
+      <path d="M17 8 Q19 3 21 7" stroke="#ffd93d" strokeWidth="2.4" fill="none" strokeLinecap="round" />
+      {petEyes(17)}
+      <RTri d="M18 22 L22 22 L20 25 Z" fill="#ff9f1c" r={2.5} />
+      <path d="M7 24 L12 21 L16 25 L20 21 L24 25 L28 21 L33 24 L33 26 Q33 34 20 34 Q7 34 7 26 Z" fill="#fffaf0" />
     </>
   ),
   pet_perro: (
     <>
-      <ellipse cx="20" cy="33" rx="9" ry="5.5" fill="#e7c9a0" />
-      <circle cx="20" cy="19" r="12" fill="#e7c9a0" />
-      <ellipse cx="8.5" cy="19" rx="4.5" ry="9" transform="rotate(18 8.5 19)" fill="#8b5a2b" />
-      <ellipse cx="31.5" cy="19" rx="4.5" ry="9" transform="rotate(-18 31.5 19)" fill="#8b5a2b" />
-      <ellipse cx="20" cy="24" rx="6" ry="4.5" fill="#fff7ed" />
-      {eyes(17)}
-      <ellipse cx="20" cy="22" rx="2.2" ry="1.6" fill={DARK} />
-      <path d="M18.5 26 Q20 29 21.5 26 Z" fill="#f472b6" />
+      {petFeet('#b07a45')}
+      <rect x="11" y="24" width="18" height="11" rx="5.5" fill="#e9c896" />
+      <rect x="8" y="6" width="24" height="21" rx="10" fill="#e9c896" />
+      <rect x="3" y="8" width="8" height="15" rx="4" transform="rotate(14 7 15)" fill="#9b6233" />
+      <rect x="29" y="8" width="8" height="15" rx="4" transform="rotate(-14 33 15)" fill="#9b6233" />
+      {petEyes(15)}
+      <path d={bowl(20, 20, 5.5)} fill="#fff4e3" />
+      <rect x="17.8" y="19.2" width="4.4" height="3" rx="1.5" fill={INK} />
     </>
   ),
   pet_gato: (
     <>
-      <ellipse cx="20" cy="33" rx="9" ry="5.5" fill="#9ca3af" />
-      <path d="M9 14 L10 3 L18 10 Z M31 14 L30 3 L22 10 Z" fill="#9ca3af" />
-      <circle cx="20" cy="19" r="12" fill="#9ca3af" />
-      {eyes(18)}
-      <path d="M18.6 22 L21.4 22 L20 23.6 Z" fill="#f472b6" />
-      <path d="M7 21 L14 22 M7 25 L14 24 M33 21 L26 22 M33 25 L26 24" stroke="#4b5563" strokeWidth="0.8" />
+      {petFeet('#7d8597')}
+      <rect x="11" y="24" width="18" height="11" rx="5.5" fill="#a3acbd" />
+      <RTri d="M10 12 L11 3 L18 8 Z" fill="#a3acbd" r={3} />
+      <RTri d="M30 12 L29 3 L22 8 Z" fill="#a3acbd" r={3} />
+      <rect x="8" y="6" width="24" height="21" rx="10" fill="#a3acbd" />
+      {petEyes(15)}
+      <RTri d="M18.8 20 L21.2 20 L20 21.6 Z" fill="#ff7a9c" r={1.5} />
+      <rect x="4" y="20" width="7" height="1.4" rx="0.7" fill="#5b6273" />
+      <rect x="29" y="20" width="7" height="1.4" rx="0.7" fill="#5b6273" />
     </>
   ),
   pet_buho: (
     <>
-      <path d="M9 10 L11 2 L16 8 Z M31 10 L29 2 L24 8 Z" fill="#92400e" />
-      <ellipse cx="20" cy="22" rx="13" ry="15" fill="#a16207" />
-      <ellipse cx="20" cy="27" rx="8" ry="9" fill="#fde68a" />
-      <circle cx="14.5" cy="16" r="5" fill="#fff" stroke="#facc15" strokeWidth="1.5" />
-      <circle cx="25.5" cy="16" r="5" fill="#fff" stroke="#facc15" strokeWidth="1.5" />
-      {eyes(16, 14.5, 25.5)}
-      <path d="M18 20 L22 20 L20 24 Z" fill="#f97316" />
+      {petFeet('#ff9f1c')}
+      <RTri d="M10 9 L11 3 L16 7 Z" fill="#8d5a2b" r={3} />
+      <RTri d="M30 9 L29 3 L24 7 Z" fill="#8d5a2b" r={3} />
+      <rect x="7" y="5" width="26" height="30" rx="12" fill="#a86b32" />
+      <path d={dome(20, 35, 9)} fill="#ffe2a8" />
+      <rect x="9" y="10" width="10" height="11" rx="5" fill="#fff" />
+      <rect x="21" y="10" width="10" height="11" rx="5" fill="#fff" />
+      {petEyes(15.5, 14.5, 25.5)}
+      <RTri d="M18.5 21 L21.5 21 L20 24 Z" fill="#ff9f1c" r={2} />
     </>
   ),
   pet_paloma: (
     <>
-      <path d="M30 26 L38 22 L36 30 Z" fill="#e5e7eb" />
-      <ellipse cx="21" cy="26" rx="12" ry="9" fill="#ffffff" />
-      <circle cx="14" cy="16" r="8" fill="#ffffff" />
-      <ellipse cx="24" cy="25" rx="6" ry="4" fill="#e5e7eb" />
-      <circle cx="12" cy="15" r="1.8" fill={DARK} />
-      <path d="M6 16 L2 18 L6 19 Z" fill="#f97316" />
+      {petFeet('#ff8fa3')}
+      <RTri d="M30 24 L38 19 L37 30 Z" fill="#dfe4ee" r={3} />
+      <rect x="8" y="16" width="26" height="18" rx="9" fill="#ffffff" />
+      <rect x="6" y="6" width="16" height="16" rx="7" fill="#ffffff" />
+      <rect x="18" y="21" width="12" height="7" rx="3.5" fill="#dfe4ee" />
+      <rect x="10.6" y="11" width="4" height="5.4" rx="2" fill={INK} />
+      <RTri d="M6 14 L2 16 L6 17.5 Z" fill="#ff9f1c" r={2} />
     </>
   ),
   pet_dragon: (
     <>
-      <path d="M6 18 L0 8 L12 14 Z M34 18 L40 8 L28 14 Z" fill="#a855f7" />
-      <path d="M13 7 L14 1 L17 6 Z M27 7 L26 1 L23 6 Z" fill="#facc15" />
-      <circle cx="20" cy="21" r="13" fill="#22c55e" />
-      <ellipse cx="20" cy="27" rx="7.5" ry="6" fill="#bbf7d0" />
-      {eyes(17)}
-      <circle cx="18" cy="23" r="0.9" fill="#14532d" />
-      <circle cx="22" cy="23" r="0.9" fill="#14532d" />
+      {petFeet('#1e9e57')}
+      <RTri d="M7 16 L1 8 L11 12 Z" fill="#a66bff" r={3} />
+      <RTri d="M33 16 L39 8 L29 12 Z" fill="#a66bff" r={3} />
+      <RTri d="M13 7 L14 2 L17 6 Z" fill="#ffd23f" r={2} />
+      <RTri d="M27 7 L26 2 L23 6 Z" fill="#ffd23f" r={2} />
+      <rect x="7" y="5" width="26" height="30" rx="12" fill="#2ec27e" />
+      <path d={dome(20, 35, 9)} fill="#c8f7d8" />
+      {petEyes(15)}
+      <rect x="16.5" y="22" width="2" height="1.6" rx="0.8" fill="#155d35" />
+      <rect x="21.5" y="22" width="2" height="1.6" rx="0.8" fill="#155d35" />
     </>
   ),
 }

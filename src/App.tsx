@@ -21,6 +21,7 @@ import { DebtSimulator } from './screens/DebtSimulator'
 import { Profile } from './screens/Profile'
 import { Wardrobe } from './screens/Wardrobe'
 import { Achievements } from './screens/Achievements'
+import { Ranking } from './screens/Ranking'
 import { GameEngine } from './components/GameEngine'
 
 function AppLayout() {
@@ -92,6 +93,7 @@ function Root() {
         <Route path="perfil" element={<Profile />} />
         <Route path="perfil/vestidor" element={<Wardrobe />} />
         <Route path="perfil/logros" element={<Achievements />} />
+        <Route path="perfil/ranking" element={<Ranking />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -80,6 +80,19 @@ export function Profile() {
         />
         <GameTile emoji="🧊" title="Congeladores" value={`${freezesOf(profile)}/${FREEZE_MAX}`} onClick={() => setFreezeInfo(true)} />
       </div>
+      <motion.button
+        type="button"
+        whileTap={{ scale: 0.97 }}
+        onClick={() => navigate('/perfil/ranking')}
+        className="mt-3 flex w-full items-center gap-3 rounded-3xl border border-accent/30 bg-gradient-to-r from-accent/15 to-accent2/10 p-3 text-left"
+      >
+        <span className="text-3xl">🏆</span>
+        <span className="flex-1">
+          <span className="block font-black">Ranking</span>
+          <span className="block text-xs text-muted">Salud financiera semanal · opcional, sin montos</span>
+        </span>
+        <ChevronRight size={18} className="text-muted" />
+      </motion.button>
       <AnimatePresence>
         {freezeInfo && (
           <motion.div
@@ -192,11 +205,6 @@ export function Profile() {
           <p className="mt-2 px-1 text-xs text-muted">Se actualizan solas cuando transfieres entre cuentas de distinta moneda.</p>
         </>
       )}
-
-      <h2 className="mt-8 mb-2 text-lg font-extrabold">Próximamente</h2>
-      <div className="overflow-hidden rounded-3xl bg-card text-muted">
-        <Row label="🏆 Ranking de salud financiera" value="Fase 4" />
-      </div>
 
       <div className="mt-8">
         <BigButton variant="danger" onClick={signOut}>

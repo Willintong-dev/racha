@@ -66,6 +66,19 @@ function Defs() {
 // Especies
 // ---------------------------------------------------------------------------
 
+/**
+ * Ajuste de accesorios por especie:
+ * y/s/tilt = dónde apoya la base del sombrero, su escala e inclinación (los sombreros van ENTRE las orejas),
+ * bow = dónde va el moño (base de la oreja), temples = hasta dónde llegan las patillas de las gafas.
+ */
+interface Fit {
+  y: number
+  s: number
+  tilt: number
+  bow: [number, number]
+  temples: [number, number]
+}
+
 interface Species {
   name: string
   head: string
@@ -77,8 +90,8 @@ interface Species {
   eyes: [number, number, number, number]
   /** 'dark' = ojos grandes oscuros con brillo; 'white' = blanco + pupila (rana, panda) */
   eyeStyle?: 'dark' | 'white'
-  /** Desplazamiento vertical de los sombreros respecto a la coronilla estándar */
-  hatDy?: number
+  /** Cómo le quedan los accesorios a esta especie */
+  fit: Fit
   ears?: ReactNode
   /** Geometría de la cabeza SIN fill (si no es el rectángulo redondeado estándar) */
   headGeo?: ReactNode
@@ -86,8 +99,10 @@ interface Species {
   face?: ReactNode
   /** Hocico + nariz (encima de la máscara) */
   snout?: ReactNode
-  /** Sobre la cabeza (cuerno, melena) — se oculta con sombrero */
+  /** Sobre la cabeza (melena) — se oculta con sombrero cerrado */
   crown?: ReactNode
+  /** Cuerno: con la corona (abierta) sale por el centro, delante */
+  horn?: ReactNode
   tail?: ReactNode
   mouth?: 'smile' | 'wide' | 'none'
 }
@@ -98,6 +113,7 @@ const SPECIES: Species[] = [
   // 0 · Zorro
   {
     name: 'Zorro', head: '#ff8a3d', body: '#ff8a3d', belly: '#fff3e3', arms: '#f27a2a', feet: '#5b2e1a', eyes: [47, 46, 73, 46],
+    fit: { y: 22, s: 0.86, tilt: -6, bow: [75, 19], temples: [27, 93] },
     ears: (
       <>
         <RTri d="M30 30 L34 6 L52 20 Z" fill="#f27a2a" />
@@ -118,6 +134,7 @@ const SPECIES: Species[] = [
   // 1 · Panda
   {
     name: 'Panda', head: '#ffffff', body: '#2f2f3a', belly: '#ffffff', arms: '#2f2f3a', feet: '#2f2f3a', eyes: [47, 47, 73, 47], eyeStyle: 'white',
+    fit: { y: 19, s: 0.9, tilt: -6, bow: [79, 21], temples: [27, 93] },
     ears: (
       <>
         <circle cx="33" cy="20" r="11" fill="#2f2f3a" />
@@ -134,7 +151,8 @@ const SPECIES: Species[] = [
   },
   // 2 · Rana
   {
-    name: 'Rana', head: '#58c25b', body: '#58c25b', belly: '#d9f7c4', arms: '#4bb04e', feet: '#3f9a43', eyes: [41, 26, 79, 26], eyeStyle: 'white', hatDy: -6, mouth: 'wide',
+    name: 'Rana', head: '#58c25b', body: '#58c25b', belly: '#d9f7c4', arms: '#4bb04e', feet: '#3f9a43', eyes: [41, 26, 79, 26], eyeStyle: 'white', mouth: 'wide',
+    fit: { y: 16, s: 0.84, tilt: -5, bow: [91, 24], temples: [22, 98] },
     headGeo: (
       <>
         <rect x="20" y="28" width="80" height="48" rx="24" />
@@ -146,6 +164,7 @@ const SPECIES: Species[] = [
   // 3 · Tigre
   {
     name: 'Tigre', head: '#ffa62b', body: '#ffa62b', belly: '#fff3e0', arms: '#f59a1c', feet: '#e88a00', eyes: [47, 45, 73, 45],
+    fit: { y: 20, s: 0.9, tilt: -6, bow: [80, 20], temples: [27, 93] },
     ears: (
       <>
         <path d={dome(35, 24, 11)} fill="#f59a1c" />
@@ -179,6 +198,7 @@ const SPECIES: Species[] = [
   // 4 · Pingüino
   {
     name: 'Pingüino', head: '#33415c', body: '#33415c', belly: '#ffffff', arms: '#2a3650', feet: '#ff9f1c', eyes: [48, 45, 72, 45],
+    fit: { y: 20, s: 1.1, tilt: -8, bow: [80, 20], temples: [27, 93] },
     face: (
       <>
         <rect x="32" y="28" width="56" height="44" rx="20" fill="#ffffff" />
@@ -191,6 +211,7 @@ const SPECIES: Species[] = [
   // 5 · Unicornio
   {
     name: 'Unicornio', head: '#f7f1ff', body: '#f7f1ff', belly: '#ece0ff', arms: '#ebe1ff', feet: '#b9a7f5', eyes: [47, 47, 73, 47],
+    fit: { y: 20, s: 0.86, tilt: -6, bow: [84, 25], temples: [27, 93] },
     ears: (
       <>
         <RTri d="M32 30 L36 10 L50 22 Z" fill="#efe6ff" />
@@ -208,9 +229,14 @@ const SPECIES: Species[] = [
     ),
     crown: (
       <>
-        <RTri d="M55 18 L60 -2 L65 18 Z" fill="#ffd23f" r={4} />
         <circle cx="47" cy="17" r="6" fill="#c3b1ff" />
         <circle cx="73" cy="17" r="6" fill="#9cd2ff" />
+      </>
+    ),
+    horn: (
+      <>
+        <RTri d="M55 18 L60 -2 L65 18 Z" fill="#fff4d6" r={4} />
+        <path d="M56.5 12 L63.5 10 M57.5 5.5 L62.5 4" stroke="#ff9cc8" strokeWidth="1.8" strokeLinecap="round" />
       </>
     ),
     tail: (
@@ -229,7 +255,8 @@ export const SPECIES_NAMES = SPECIES.map((s) => s.name)
 export function Character({ species, hat, happy = 0, still }: { species: number; hat?: string; happy?: number; still?: boolean }) {
   const s = SPECIES[species] ?? SPECIES[0]
   const [lx, ly, rx, ry] = s.eyes
-  const wearsHat = !!hat && hat !== 'hat_gafas' && hat !== 'hat_moño'
+  // Gafas, moño y corona (abierta) dejan ver cuerno y melena; los demás sombreros los tapan
+  const wearsHat = !!hat && hat !== 'hat_gafas' && hat !== 'hat_moño' && hat !== 'hat_corona'
   const isHappy = happy > 0
 
   return (
@@ -274,6 +301,7 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
           <Vol fill={s.head}>{s.headGeo ?? HEAD}</Vol>
           {s.face}
           {!wearsHat && s.crown}
+          {!wearsHat && hat !== 'hat_corona' && s.horn}
 
           {/* Cachetes flotantes */}
           <rect x={lx - 13} y={ly + 9} width="9" height="5" rx="2.5" fill="#ff7a9c" opacity="0.5" />
@@ -323,7 +351,9 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
             <path d="M55 66 Q57.5 69 60 66 Q62.5 69 65 66" stroke={INK} strokeWidth="2.2" strokeLinecap="round" fill="none" />
           )}
 
-          {hat && <Hat id={hat} dy={s.hatDy ?? 0} eyes={s.eyes} />}
+          {hat && <Hat id={hat} fit={s.fit} eyes={s.eyes} />}
+          {/* Con la corona (abierta) el cuerno sale por el centro, delante */}
+          {hat === 'hat_corona' && s.horn}
         </g>
       </g>
     </g>
@@ -334,14 +364,24 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
 // Accesorios (dibujados para una coronilla en y=30 y escalados al ancho de la cabeza)
 // ---------------------------------------------------------------------------
 
-function Hat({ id, dy, eyes }: { id: string; dy: number; eyes: [number, number, number, number] }) {
+function Hat({ id, fit, eyes }: { id: string; fit: Fit; eyes: [number, number, number, number] }) {
   const [lx, ly, rx, ry] = eyes
-  // Lleva la base del sombrero (y=30) a la coronilla (y=22) y lo agranda al ancho de la cabeza
-  const onHead = `translate(0 ${dy - 8}) translate(60 30) scale(1.22) translate(-60 -30)`
+  // Lleva la base del sombrero (dibujada en 60,30) al punto de apoyo de la especie, con su escala e inclinación
+  const onHead = `translate(60 ${fit.y}) rotate(${fit.tilt}) scale(${fit.s}) translate(-60 -30)`
+  // Sombra de contacto sobre la cabeza: el sombrero se ve apoyado, no pegado encima
+  const contact = (
+    <ellipse cx="60" cy={fit.y + 1.5} rx={21 * fit.s} ry="3.2" fill="#000" opacity="0.2" transform={`rotate(${fit.tilt} 60 ${fit.y})`} />
+  )
+  const worn = (art: ReactNode) => (
+    <>
+      {contact}
+      <g transform={onHead}>{art}</g>
+    </>
+  )
   switch (id) {
     case 'hat_gorra':
       return (
-        <g transform={`${onHead} rotate(-8 60 30)`}>
+        worn(<>
           <Vol fill="#3d8bff">
             <path d={dome(60, 31, 23)} />
           </Vol>
@@ -350,11 +390,11 @@ function Hat({ id, dy, eyes }: { id: string; dy: number; eyes: [number, number, 
             <rect x="56" y="27" width="46" height="7" rx="3.5" />
           </Vol>
           <circle cx="60" cy="8" r="3" fill="#2b6fe0" />
-        </g>
+        </>)
       )
     case 'hat_sombrero':
       return (
-        <g transform={`${onHead} rotate(-6 60 28)`}>
+        worn(<>
           <Vol fill="#2b2340">
             <rect x="44" y="2" width="32" height="27" rx="5" />
           </Vol>
@@ -362,11 +402,11 @@ function Hat({ id, dy, eyes }: { id: string; dy: number; eyes: [number, number, 
           <Vol fill="#3a3152" shine={false}>
             <rect x="33" y="26" width="54" height="7" rx="3.5" />
           </Vol>
-        </g>
+        </>)
       )
     case 'hat_corona':
       return (
-        <g transform={onHead}>
+        worn(<>
           <RTri d="M41 30 L42 13 L51 22 L60 7 L69 22 L78 13 L79 30 Z" fill="#ffd23f" r={5} />
           <path d="M40 24 L80 24 L80 31 L40 31 Z" fill="url(#crShade)" />
           <circle cx="60" cy="24" r="3.4" fill="#ff4d6d" />
@@ -375,11 +415,11 @@ function Hat({ id, dy, eyes }: { id: string; dy: number; eyes: [number, number, 
           <g className="cr-sparkle">
             <RTri d="M88 8 L90 14 L96 16 L90 18 L88 24 L86 18 L80 16 L86 14 Z" fill="#fff3a6" r={1.5} />
           </g>
-        </g>
+        </>)
       )
     case 'hat_moño':
       return (
-        <g transform={`translate(0 ${dy - 8})`}>
+        <g transform={`translate(${fit.bow[0]} ${fit.bow[1]}) rotate(18) scale(0.8) translate(-80 -30)`}>
           <RTri d="M80 30 L68 22 L68 38 Z" fill="#ff5fa2" r={6} />
           <RTri d="M80 30 L92 22 L92 38 Z" fill="#ff5fa2" r={6} />
           <rect x="76.5" y="26" width="7" height="8" rx="3.5" fill="#d93d82" />
@@ -387,7 +427,7 @@ function Hat({ id, dy, eyes }: { id: string; dy: number; eyes: [number, number, 
       )
     case 'hat_birrete':
       return (
-        <g transform={onHead}>
+        worn(<>
           <Vol fill="#2b2340" shine={false}>
             <rect x="44" y="22" width="32" height="12" rx="5" />
           </Vol>
@@ -397,11 +437,11 @@ function Hat({ id, dy, eyes }: { id: string; dy: number; eyes: [number, number, 
             <path d="M60 19 L84 23 L84 34" stroke="#ffd23f" strokeWidth="2" fill="none" strokeLinecap="round" />
             <rect x="81" y="33" width="6" height="9" rx="2.5" fill="#ffd23f" />
           </g>
-        </g>
+        </>)
       )
     case 'hat_vikingo':
       return (
-        <g transform={onHead}>
+        worn(<>
           <Vol fill="#ffc62b">
             <path d={dome(60, 32, 25)} />
           </Vol>
@@ -409,11 +449,13 @@ function Hat({ id, dy, eyes }: { id: string; dy: number; eyes: [number, number, 
           <Vol fill="#f2a900" shine={false}>
             <rect x="31" y="29" width="58" height="7" rx="3.5" />
           </Vol>
-        </g>
+        </>)
       )
     case 'hat_gafas':
       return (
         <g>
+          <rect x={fit.temples[0]} y={ly - 3} width={lx - 10 - fit.temples[0] + 2} height="3.2" rx="1.6" fill="#2b2340" />
+          <rect x={rx + 8} y={ry - 3} width={fit.temples[1] - rx - 8} height="3.2" rx="1.6" fill="#2b2340" />
           <rect x={lx - 10} y={ly - 8} width="20" height="16" rx="7" fill="#2b2340" />
           <rect x={rx - 10} y={ry - 8} width="20" height="16" rx="7" fill="#2b2340" />
           <rect x={lx + 9} y={ly - 2.5} width={rx - lx - 18} height="3.5" rx="1.75" fill="#2b2340" />

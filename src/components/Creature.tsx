@@ -113,6 +113,8 @@ interface Species {
   horn?: ReactNode
   tail?: ReactNode
   mouth?: 'smile' | 'wide' | 'none'
+  /** Desplazamiento de los cachetes [hacia afuera, hacia abajo] (panda: que no caigan sobre las manchas) */
+  cheeks?: [number, number]
 }
 
 const SPECIES: Species[] = [
@@ -141,7 +143,7 @@ const SPECIES: Species[] = [
   // 1 · Panda — cabezón y redondo
   {
     name: 'Panda', head: { x: 22, y: 17, w: 76, h: 60, rx: 30 },
-    headColor: '#ffffff', body: '#2f2f3a', belly: '#ffffff', arms: '#2f2f3a', feet: '#2f2f3a', eyes: [46, 47, 74, 47], eyeStyle: 'white', eyeScale: 0.72,
+    headColor: '#ffffff', body: '#2f2f3a', belly: '#ffffff', arms: '#2f2f3a', feet: '#2f2f3a', eyes: [46, 46.5, 74, 46.5], eyeStyle: 'white', eyeScale: 0.58, cheeks: [3, 4],
     bow: [84, 21],
     ears: (
       <>
@@ -149,12 +151,15 @@ const SPECIES: Species[] = [
         <circle cx="89" cy="22" r="11" fill="#2f2f3a" />
       </>
     ),
-    // Manchas: óvalos que bajan hacia afuera (arriba tocan el puente de la nariz), con el ojo dentro
+    // Manchas: gotas inclinadas — finas arriba junto al puente de la nariz, más llenas abajo hacia afuera;
+    // el ojo va en la parte de arriba de la gota
     face: (
-      <>
-        <rect x="37.5" y="39" width="16" height="21" rx="8" transform="rotate(28 45.5 49.5)" fill="#2f2f3a" />
-        <rect x="66.5" y="39" width="16" height="21" rx="8" transform="rotate(-28 74.5 49.5)" fill="#2f2f3a" />
-      </>
+      <g fill="#2f2f3a">
+        <ellipse cx="44" cy="50" rx="6.5" ry="11.5" transform="rotate(26 44 50)" />
+        <circle cx="42.4" cy="53.6" r="6.9" />
+        <ellipse cx="76" cy="50" rx="6.5" ry="11.5" transform="rotate(-26 76 50)" />
+        <circle cx="77.6" cy="53.6" r="6.9" />
+      </g>
     ),
     snout: <RTri d="M56 61 L64 61 L60 65 Z" fill="#2f2f3a" r={4} />,
   },
@@ -289,6 +294,7 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
   const covers = !!hat && COVERING.has(hat) && s.capMode !== 'sit'
   const isHappy = happy > 0
   const k = s.eyeScale ?? 1
+  const [cdx, cdy] = s.cheeks ?? [0, 0]
 
   return (
     <g className={`cr${still ? ' cr-still' : ''}`}>
@@ -329,8 +335,8 @@ export function Character({ species, hat, happy = 0, still }: { species: number;
           {!wearsHat && s.crown}
           {!wearsHat && hat !== 'hat_corona' && s.horn}
 
-          <rect x={lx - 13} y={ly + 9} width="9" height="5" rx="2.5" fill="#ff7a9c" opacity="0.5" />
-          <rect x={rx + 4} y={ry + 9} width="9" height="5" rx="2.5" fill="#ff7a9c" opacity="0.5" />
+          <rect x={lx - 13 - cdx} y={ly + 9 + cdy} width="9" height="5" rx="2.5" fill="#ff7a9c" opacity="0.5" />
+          <rect x={rx + 4 + cdx} y={ry + 9 + cdy} width="9" height="5" rx="2.5" fill="#ff7a9c" opacity="0.5" />
 
           {isHappy ? (
             <g stroke={INK} strokeWidth="3" strokeLinecap="round" fill="none">

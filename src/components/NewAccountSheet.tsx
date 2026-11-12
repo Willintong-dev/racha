@@ -6,8 +6,10 @@ import { addXp, createAccount, setRate, XP } from '../lib/actions'
 import { useData } from '../lib/data'
 import { currencySymbol, formatTyping, parseAmount } from '../lib/format'
 import { rateOf } from '../lib/finance'
+import { approxRate, rateLabel } from '../lib/fx'
+import { celebrate } from '../lib/celebrate'
 import { BigButton, NumPad, Sheet } from './ui'
-import { CurrencyPicker, RateInput } from './currency'
+import { CurrencyPicker, RateInput, useRateSuggestion } from './currency'
 
 export function NewAccountSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
@@ -30,9 +32,17 @@ function Wizard({ onDone }: { onDone: () => void }) {
 
   const knownRate = rateOf(currency, main, profile.rates)
   const needsRate = currency !== main && !knownRate
+  // Tasa de mercado sugerida: así los totales funcionan de una vez (el usuario la puede corregir)
+  const { suggestion, loading } = useRateSuggestion(currency, main, needsRate)
 
   const finish = async () => {
-    if (needsRate && rate) await setRate(userId, currency, rate)
+    if (needsRate) {
+      const r = rate ?? suggestion?.rate ?? approxRate(currency, main)?.rate
+      if (r) {
+        await setRate(userId, currency, r)
+        celebrate.emit({ kind: 'info', text: `Tasa: ${rateLabel(currency, main, r)} · puedes cambiarla en Perfil` })
+      }
+    }
     await createAccount(userId, { name, type, currency, initialBalance: parseAmount(balance) })
     await addXp(userId, XP.newAccount, 'Nueva cuenta')
     onDone()
@@ -109,9 +119,9 @@ function Wizard({ onDone }: { onDone: () => void }) {
                 {needsRate && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
                     <p className="mb-2 text-sm text-muted">
-                      Tasa de cambio para sumarla a tus totales en {main}. Opcional: si la dejas vacía, la app la aprende con tu primera transferencia.
+                      Tasa para sumarla a tus totales en {main}. Se ajusta sola cuando transfieres entre monedas.
                     </p>
-                    <RateInput key={currency} foreign={currency} main={main} onChange={setRateValue} />
+                    <RateInput key={currency} foreign={currency} main={main} suggestion={suggestion} loading={loading} onChange={setRateValue} />
                   </motion.div>
                 )}
               </AnimatePresence>

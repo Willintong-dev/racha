@@ -12,7 +12,8 @@ import { currencyInfo, currencySymbol, formatTyping, money, parseAmount } from '
 import { celebrate } from '../lib/celebrate'
 import { changeMainCurrency, setRate } from '../lib/actions'
 import { Avatar, BigButton, Chip, NumPad, Page, Sheet, XpBar } from '../components/ui'
-import { RateInput } from '../components/currency'
+import { RateInput, useRateSuggestion } from '../components/currency'
+import { rateLabel } from '../lib/fx'
 import { MonthlyItems } from '../components/MonthlyItems'
 import { SyncBadge } from '../lib/syncProvider'
 
@@ -298,16 +299,44 @@ function ItemsEditor({ kind, onDone }: { kind: 'debts' | 'fixed'; onDone: () => 
 
 function RateEditor({ code, onDone }: { code: string; onDone: () => void }) {
   const { profile, userId, main } = useData()
-  const [rate, setRateValue] = useState(profile.rates?.[code])
+  const saved = profile.rates?.[code]
+  const [rate, setRateValue] = useState(saved)
+  // Semilla del campo: la tasa guardada (manda la del usuario) o, al tocar "Usar tasa de hoy", la del mercado
+  const [seed, setSeed] = useState<{ v?: number; n: number }>({ v: saved, n: 0 })
+  const { suggestion, loading } = useRateSuggestion(code, main)
+  const differs = !!suggestion && (!rate || Math.abs(rate / suggestion.rate - 1) > 0.0005)
   return (
     <div className="flex flex-col gap-4">
-      <RateInput foreign={code} main={main} value={profile.rates?.[code]} onChange={setRateValue} />
+      <RateInput
+        key={seed.n}
+        foreign={code}
+        main={main}
+        value={seed.v}
+        suggestion={suggestion}
+        loading={loading}
+        onChange={setRateValue}
+      />
+      {saved !== undefined && (loading || differs) && (
+        <button
+          type="button"
+          disabled={!suggestion}
+          onClick={() => {
+            setSeed((s) => ({ v: suggestion!.rate, n: s.n + 1 }))
+            setRateValue(suggestion!.rate)
+          }}
+          className="-mt-2 self-start rounded-xl bg-accent/15 px-3 py-1.5 text-sm font-bold text-accent disabled:animate-pulse disabled:opacity-60"
+        >
+          {suggestion
+            ? `Usar tasa de hoy: ${rateLabel(code, main, suggestion.rate)}${suggestion.source === 'approx' ? ' (aprox.)' : ''}`
+            : 'Buscando la tasa de hoy…'}
+        </button>
+      )}
       <p className="text-sm text-muted">Toca ⇄ para escribirla al revés si te resulta más fácil.</p>
       <BigButton
         disabled={!rate}
         onClick={async () => {
           await setRate(userId, code, rate)
-          celebrate.emit({ kind: 'info', text: `1 ${code} = ${money(rate!)}` })
+          celebrate.emit({ kind: 'info', text: rateLabel(code, main, rate!) })
           onDone()
         }}
       >

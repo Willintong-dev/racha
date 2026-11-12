@@ -9,6 +9,7 @@ import { rateOf } from '../lib/finance'
 import { deleteTransaction, saveTransaction } from '../lib/actions'
 import { celebrate } from '../lib/celebrate'
 import { BigButton, Chip, NumPad, Sheet } from './ui'
+import { useRateSuggestion } from './currency'
 
 type Mode = 'gasto' | 'ingreso' | 'transferencia'
 export interface QuickAddOptions {
@@ -106,7 +107,17 @@ function QuickAddForm({ opts, onClose }: { opts: QuickAddOptions; onClose: () =>
   const cross = isTransfer && fromCur !== toCur
   const rTo = rateOf(toCur, main, profile.rates)
   const inMain = accountId ? toMain(amt, accountId) : 0
-  const estimate = cross && amt > 0 && rTo && inMain > 0 ? Math.round((inMain / rTo) * 100) / 100 : undefined
+  const known = !!rTo && inMain > 0
+  // Sin tasas guardadas, estimamos con la del mercado (el usuario puede escribir lo que llegó de verdad)
+  const { suggestion: market } = useRateSuggestion(fromCur, toCur, cross && !known)
+  const estimate =
+    cross && amt > 0
+      ? known
+        ? Math.round((inMain / rTo) * 100) / 100
+        : market
+          ? Math.round(amt * market.rate * 100) / 100
+          : undefined
+      : undefined
   const toAmt = parseAmount(toAmount) || estimate || 0
   const valid =
     amt > 0 &&

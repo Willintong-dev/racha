@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { useData } from '../lib/data'
 import { db, type DebtStrategy } from '../lib/db'
-import { attackOrder, durationLabel, monthsFromNow, simulate, toSimDebts } from '../lib/debts'
+import { attackOrder, durationLabel, monthsFromNow, recommendExtra, simulate, toSimDebts } from '../lib/debts'
+import { sumItems } from '../lib/finance'
 import { celebrate } from '../lib/celebrate'
 import { money } from '../lib/format'
 import { BigButton, Empty, Page } from '../components/ui'
@@ -22,21 +23,39 @@ export function DebtSimulator() {
   const skipped = active.filter((d) => !sim.some((s) => s.id === d.id))
   const noRate = active.filter((d) => !d.annualRate)
 
-  const [strategy, setStrategy] = useState<DebtStrategy>(profile.debtPlan?.strategy ?? 'avalancha')
-  const [extra, setExtra] = useState(profile.debtPlan?.extra ?? 0)
-
   const totalPayment = sim.reduce((s, d) => s + d.payment, 0)
-  const maxExtra = Math.max(Math.ceil(totalPayment * 1.5), 10)
+  // Recomendación: lo que sobra del presupuesto mensual (las cuotas del onboarding aún sin completar también cuentan)
+  const rec = useMemo(
+    () =>
+      recommendExtra({
+        income: profile.monthlyIncome,
+        debtsMonthly: totalPayment + sumItems(profile.debtItems),
+        fixed: sumItems(profile.fixedExpenses),
+        savingsPct: profile.savingsPct,
+        dailyLimit: profile.dailyLimit,
+      }),
+    [profile, totalPayment],
+  )
+  const [strategy, setStrategy] = useState<DebtStrategy>(profile.debtPlan?.strategy ?? 'avalancha')
+  const [extra, setExtra] = useState(profile.debtPlan?.extra ?? rec?.amount ?? 0)
+  const [showHow, setShowHow] = useState(false)
+
+  const maxExtra = Math.max(Math.ceil(totalPayment * 1.5), Math.ceil((rec?.amount ?? 0) * 1.5), extra, 10)
   const step = Math.max(1, Math.round(maxExtra / 100))
 
-  const base = useMemo(() => simulate(sim, 0, strategy, false), [sim, strategy])
+  // "Sin extra" con la misma estrategia: aísla el efecto del pago extra
+  const noExtra = useMemo(() => simulate(sim, 0, strategy), [sim, strategy])
+  // Pagar cada deuda por separado (sin pasar cuotas liberadas a la siguiente)
+  const separate = useMemo(() => simulate(sim, 0, strategy, false), [sim, strategy])
   const results = useMemo(
     () => ({ avalancha: simulate(sim, extra, 'avalancha'), bola: simulate(sim, extra, 'bola') }),
     [sim, extra],
   )
   const r = results[strategy]
-  const monthsSaved = base.feasible && r.feasible ? base.months - r.months : undefined
-  const interestSaved = base.totalInterest - r.totalInterest
+  const monthsSaved = noExtra.feasible && r.feasible ? noExtra.months - r.months : undefined
+  const interestSaved = noExtra.totalInterest - r.totalInterest
+  const rolloverGain = separate.feasible && noExtra.feasible ? separate.months - noExtra.months : 0
+  const allNoRate = sim.every((d) => d.rate === 0)
   const nameOf = (id: string) => active.find((d) => d.id === id)
   const targetId = attackOrder(sim, strategy)[0]?.id
 
@@ -76,8 +95,68 @@ export function DebtSimulator() {
         })}
       </div>
 
-      {/* Pago extra */}
+      {/* Pago extra: la app recomienda, tú ajustas */}
       <div className="mt-5 rounded-3xl bg-card p-4">
+        {rec ? (
+          <div className="mb-4 rounded-2xl bg-accent/10 p-3">
+            {rec.amount > 0 ? (
+              <>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm">
+                    💡 Te recomendamos <b className="text-accent">+{money(rec.amount)}/mes</b>
+                  </p>
+                  {extra !== rec.amount && (
+                    <button type="button" onClick={() => setExtra(rec.amount)} className="shrink-0 rounded-xl bg-accent px-3 py-1.5 text-xs font-extrabold text-white">
+                      Usar
+                    </button>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-muted">Es lo que te sobra cada mes sin tocar tu ahorro ni tu día a día.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm">💡 Este mes no te sobra dinero para pagos extra.</p>
+                {profile.dailyLimit ? (
+                  <p className="mt-1 text-xs text-muted">
+                    Si bajas tu límite diario un 10% ({money(profile.dailyLimit)} → {money(Math.floor(profile.dailyLimit * 0.9))}) liberas unos{' '}
+                    <b className="text-ink">{money(Math.floor(profile.dailyLimit * 3))}/mes</b> para tus deudas.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-muted">Tus cuotas, gastos fijos y ahorro ya usan todo tu ingreso.</p>
+                )}
+              </>
+            )}
+            <button type="button" onClick={() => setShowHow((s) => !s)} className="mt-2 text-xs font-bold text-accent">
+              {showHow ? '▾' : '▸'} ¿Cómo lo calculo?
+            </button>
+            <AnimatePresence>
+              {showHow && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                  <div className="mt-2 text-xs tabular-nums">
+                    <HowLine label="Ingreso mensual" value={money(profile.monthlyIncome ?? 0)} />
+                    <HowLine label="− Cuotas de deudas" value={money(totalPayment + sumItems(profile.debtItems))} />
+                    <HowLine label="− Gastos fijos" value={money(sumItems(profile.fixedExpenses))} />
+                    <HowLine label={`− Ahorro (${profile.savingsPct ?? 0}%)`} value={money(rec.saving)} />
+                    <HowLine
+                      label={rec.basis === 'limite' ? `− Día a día (${money(profile.dailyLimit ?? 0)} × 30)` : '− Día a día (80% de lo libre)'}
+                      value={money(rec.dayToDay)}
+                    />
+                    <div className="my-1 h-px bg-line" />
+                    <HowLine label="= Extra para deudas" value={money(rec.amount)} strong />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => navigate('/perfil')}
+            className="mb-4 w-full rounded-2xl bg-warn/10 p-3 text-left text-sm"
+          >
+            💡 Agrega tu ingreso mensual en <b>Perfil</b> y te recomiendo cuánto poner extra →
+          </button>
+        )}
         <div className="flex items-end justify-between">
           <p className="font-bold">Pago extra al mes</p>
           <motion.p key={extra} initial={{ scale: 1.15 }} animate={{ scale: 1 }} className="text-2xl font-black text-accent">
@@ -114,16 +193,37 @@ export function DebtSimulator() {
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
                 <div className="rounded-2xl bg-black/20 p-3">
                   <p className="text-muted">Intereses</p>
-                  <p className="font-black text-bad">{money(r.totalInterest)}</p>
+                  {allNoRate ? (
+                    <button type="button" onClick={() => navigate('/deudas')} className="font-black text-warn">
+                      Sin tasas →
+                    </button>
+                  ) : (
+                    <p className="font-black text-bad">{money(r.totalInterest)}</p>
+                  )}
                 </div>
                 <div className="rounded-2xl bg-black/20 p-3">
-                  <p className="text-muted">Vs. solo cuotas</p>
+                  <p className="text-muted">Gracias al extra</p>
                   <p className="font-black text-good">
-                    {monthsSaved && monthsSaved > 0 ? `${monthsSaved} ${monthsSaved === 1 ? 'mes' : 'meses'} antes` : base.feasible ? 'Igual' : '¡Ahora sí terminas!'}
+                    {extra === 0
+                      ? '—'
+                      : monthsSaved && monthsSaved > 0
+                        ? `${monthsSaved} ${monthsSaved === 1 ? 'mes' : 'meses'} antes`
+                        : noExtra.feasible
+                          ? 'Menos de 1 mes'
+                          : '¡Ahora sí terminas!'}
                   </p>
                   {interestSaved > 0.5 && <p className="text-xs font-bold text-good">ahorras {money(interestSaved)}</p>}
                 </div>
               </div>
+              {rolloverGain > 0 && (
+                <p className="mt-3 text-xs text-muted">
+                  ✨ Además, pasar la cuota de cada deuda terminada a la siguiente te adelanta {rolloverGain}{' '}
+                  {rolloverGain === 1 ? 'mes' : 'meses'} frente a pagarlas por separado.
+                </p>
+              )}
+              {allNoRate && (
+                <p className="mt-2 text-xs text-warn">Sin tasas de interés no podemos calcular intereses ni cuál deuda te cuesta más. Agrégalas en cada deuda → Editar.</p>
+              )}
             </>
           ) : (
             <>
@@ -238,5 +338,14 @@ function Back({ onClick }: { onClick: () => void }) {
     <button type="button" onClick={onClick} className="-ml-2 p-2 text-muted" aria-label="Volver">
       <ArrowLeft />
     </button>
+  )
+}
+
+function HowLine({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className={`flex justify-between gap-2 py-0.5 ${strong ? 'font-black text-ink' : 'text-muted'}`}>
+      <span>{label}</span>
+      <span>{value}</span>
+    </div>
   )
 }

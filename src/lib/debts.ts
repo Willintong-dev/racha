@@ -174,3 +174,37 @@ export function toSimDebts(debts: Debt[], convert: (amount: number, code: string
   }
   return out
 }
+
+export interface ExtraRecommendation {
+  /** Pago extra mensual recomendado (moneda principal), 0 si no sobra nada */
+  amount: number
+  /** Ingreso − cuotas − fijos − ahorro */
+  free: number
+  /** Lo reservado para el día a día (límite × 30, o el 80% de lo libre si no hay límite) */
+  dayToDay: number
+  basis: 'limite' | 'sin-limite'
+  saving: number
+}
+
+/**
+ * Cuánto puedes poner extra a tus deudas sin tocar tu presupuesto:
+ * ingreso − cuotas − gastos fijos − ahorro − día a día.
+ * Sin límite diario reservamos el 80% de lo libre para el día a día y recomendamos el 20%.
+ */
+export function recommendExtra(p: {
+  income?: number
+  debtsMonthly: number
+  fixed: number
+  savingsPct?: number
+  dailyLimit?: number
+}): ExtraRecommendation | undefined {
+  if (!p.income) return undefined
+  const saving = (p.income * (p.savingsPct ?? 0)) / 100
+  const free = p.income - p.debtsMonthly - p.fixed - saving
+  if (p.dailyLimit) {
+    const dayToDay = p.dailyLimit * 30
+    return { amount: Math.max(0, Math.floor(free - dayToDay)), free, dayToDay, basis: 'limite', saving }
+  }
+  const dayToDay = Math.max(0, free * 0.8)
+  return { amount: Math.max(0, Math.floor(free - dayToDay)), free, dayToDay, basis: 'sin-limite', saving }
+}

@@ -7,10 +7,10 @@ import { useAuth } from '../lib/auth'
 import { db, type MonthlyItem, type Profile as ProfileT } from '../lib/db'
 import { AVATARS, DEBT_PRESETS, FIXED_PRESETS } from '../lib/catalog'
 import { computeStreak, levelFromXp, suggestedDailyLimit, sumItems } from '../lib/finance'
-import { currencyInfo, money } from '../lib/format'
+import { currencyInfo, currencySymbol, formatTyping, money, parseAmount } from '../lib/format'
 import { celebrate } from '../lib/celebrate'
 import { changeMainCurrency, setRate } from '../lib/actions'
-import { Avatar, BigButton, Chip, Page, Sheet, XpBar } from '../components/ui'
+import { Avatar, BigButton, Chip, NumPad, Page, Sheet, XpBar } from '../components/ui'
 import { RateInput } from '../components/currency'
 import { MonthlyItems } from '../components/MonthlyItems'
 
@@ -19,6 +19,7 @@ export function Profile() {
   const { signOut, mode, user } = useAuth()
   const navigate = useNavigate()
   const [limitOpen, setLimitOpen] = useState(false)
+  const [incomeOpen, setIncomeOpen] = useState(false)
   const [itemsOpen, setItemsOpen] = useState<'debts' | 'fixed' | null>(null)
   /** Tras editar deudas o gastos fijos, ofrecemos actualizar el límite (nunca lo cambiamos solos) */
   const [offerLimit, setOfferLimit] = useState(false)
@@ -96,6 +97,7 @@ export function Profile() {
 
       <h2 className="mt-8 mb-2 text-lg font-extrabold">Ajustes</h2>
       <div className="overflow-hidden rounded-3xl bg-card">
+        <Row label="💼 Ingreso mensual" value={profile.monthlyIncome ? money(profile.monthlyIncome) : 'Sin definir'} onClick={() => setIncomeOpen(true)} />
         <Row label="Límite diario" value={profile.dailyLimit ? money(profile.dailyLimit) : 'Sin definir'} onClick={() => setLimitOpen(true)} />
         <Row
           label="💳 Cuotas de deudas"
@@ -211,6 +213,17 @@ export function Profile() {
         )}
       </Sheet>
 
+      <Sheet open={incomeOpen} onClose={() => setIncomeOpen(false)} title="Ingreso mensual">
+        {incomeOpen && (
+          <IncomeEditor
+            onDone={() => {
+              setIncomeOpen(false)
+              setOfferLimit(true)
+            }}
+          />
+        )}
+      </Sheet>
+
       <Sheet open={limitOpen} onClose={() => setLimitOpen(false)} title="Límite diario">
         {limitOpen && <LimitEditor onDone={() => setLimitOpen(false)} />}
       </Sheet>
@@ -270,6 +283,39 @@ function RateEditor({ code, onDone }: { code: string; onDone: () => void }) {
         onClick={async () => {
           await setRate(userId, code, rate)
           celebrate.emit({ kind: 'info', text: `1 ${code} = ${money(rate!)}` })
+          onDone()
+        }}
+      >
+        Guardar
+      </BigButton>
+    </div>
+  )
+}
+
+function IncomeEditor({ onDone }: { onDone: () => void }) {
+  const { profile, userId } = useData()
+  const [value, setValue] = useState(profile.monthlyIncome ? String(profile.monthlyIncome) : '')
+  const [savingsPct, setSavingsPct] = useState(profile.savingsPct ?? 10)
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-muted">Lo que recibes al mes. Con esto calculamos tu límite diario y cuánto puedes poner extra a tus deudas.</p>
+      <p className="text-center text-5xl font-black tabular-nums">
+        <span className="mr-1 align-top text-2xl opacity-70">{currencySymbol(profile.currency)}</span>
+        {formatTyping(value)}
+      </p>
+      <NumPad value={value} onChange={setValue} />
+      <div>
+        <p className="text-sm font-bold">
+          Ahorro: <span className="text-good">{savingsPct}%</span>
+          {parseAmount(value) > 0 && <span className="text-muted"> · {money((parseAmount(value) * savingsPct) / 100)}/mes</span>}
+        </p>
+        <input type="range" min={0} max={30} value={savingsPct} onChange={(e) => setSavingsPct(Number(e.target.value))} className="mt-2 w-full accent-[#34d399]" />
+      </div>
+      <BigButton
+        disabled={parseAmount(value) <= 0}
+        onClick={async () => {
+          await db.profiles.update(userId, { monthlyIncome: parseAmount(value), savingsPct })
+          celebrate.emit({ kind: 'info', text: `Ingreso: ${money(parseAmount(value))}/mes` })
           onDone()
         }}
       >

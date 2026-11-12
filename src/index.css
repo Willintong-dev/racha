@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Nunito", ui-rounded, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-bg: #0b0b14;
+  --color-card: #161625;
+  --color-card2: #1f1f33;
+  --color-line: #2a2a42;
+  --color-ink: #f4f4fb;
+  --color-muted: #8a8aa3;
+  --color-accent: #8b5cf6;
+  --color-accent2: #ec4899;
+  --color-good: #34d399;
+  --color-bad: #f87171;
+  --color-warn: #fbbf24;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+button {
+  cursor: pointer;
+}
+
+input {
+  outline: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.grad {
+  background-image: linear-gradient(135deg, var(--color-accent), var(--color-accent2));
+}

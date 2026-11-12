@@ -30,7 +30,13 @@ export function QuickAddProvider({ children }: { children: ReactNode }) {
   const open = (opts: QuickAddOptions = {}) => setState((s) => ({ open: true, opts, key: s.key + 1 }))
   const close = () => setState((s) => ({ ...s, open: false }))
   const e = state.opts.edit
-  const title = e ? (e.type === 'ajuste' ? 'Ajuste de saldo' : 'Editar movimiento') : undefined
+  const title = e
+    ? e.type === 'ajuste'
+      ? 'Ajuste de saldo'
+      : e.type === 'pago_deuda'
+        ? 'Pago de deuda'
+        : 'Editar movimiento'
+    : undefined
 
   return (
     <Ctx.Provider value={open}>
@@ -38,6 +44,8 @@ export function QuickAddProvider({ children }: { children: ReactNode }) {
       <Sheet open={state.open} onClose={close} title={title}>
         {e?.type === 'ajuste' ? (
           <AdjustmentView key={state.key} tx={e} onClose={close} />
+        ) : e?.type === 'pago_deuda' ? (
+          <DebtPaymentView key={state.key} tx={e} onClose={close} />
         ) : (
           <QuickAddForm key={state.key} opts={state.opts} onClose={close} />
         )}
@@ -371,6 +379,34 @@ function AccountRow({
           </Chip>
         ))}
       </div>
+    </div>
+  )
+}
+
+/** Los pagos de deuda no se editan como gasto (eso rompería el saldo de la deuda): solo se ven o se eliminan. */
+function DebtPaymentView({ tx, onClose }: { tx: Transaction; onClose: () => void }) {
+  const { accounts, currencyOf, debts } = useData()
+  const debt = debts.find((d) => d.id === tx.debtId)
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-muted">
+        {tx.note ?? 'Pago'} a <b className="text-ink">{debt ? `${debt.emoji} ${debt.name}` : 'una deuda eliminada'}</b> desde{' '}
+        <b className="text-ink">{accounts.find((a) => a.id === tx.accountId)?.name}</b>, {dayLabel(tx.date).toLowerCase()}:
+      </p>
+      <p className="text-center text-4xl font-black">{money(tx.amount, { currency: currencyOf(tx.accountId) })}</p>
+      <p className="text-sm text-muted">
+        Si lo eliminas, el dinero vuelve a la cuenta{debt ? ' y el saldo de la deuda sube de nuevo' : ''}.
+      </p>
+      <BigButton
+        variant="danger"
+        onClick={async () => {
+          await deleteTransaction(tx.id)
+          celebrate.emit({ kind: 'info', text: 'Pago eliminado' })
+          onClose()
+        }}
+      >
+        Eliminar pago
+      </BigButton>
     </div>
   )
 }

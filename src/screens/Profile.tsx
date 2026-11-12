@@ -22,7 +22,8 @@ export function Profile() {
   const [itemsOpen, setItemsOpen] = useState<'debts' | 'fixed' | null>(null)
   /** Tras editar deudas o gastos fijos, ofrecemos actualizar el límite (nunca lo cambiamos solos) */
   const [offerLimit, setOfferLimit] = useState(false)
-  const suggestedNow = suggestedLimitFor(profile)
+  const debtsMonthly = useDebtsMonthly()
+  const suggestedNow = suggestedLimitFor(profile, debtsMonthly)
   const [avatarOpen, setAvatarOpen] = useState(false)
   const [rateFor, setRateFor] = useState<string | null>(null)
 
@@ -98,8 +99,8 @@ export function Profile() {
         <Row label="Límite diario" value={profile.dailyLimit ? money(profile.dailyLimit) : 'Sin definir'} onClick={() => setLimitOpen(true)} />
         <Row
           label="💳 Cuotas de deudas"
-          value={profile.debtItems?.length ? `${money(sumItems(profile.debtItems))}/mes` : 'Ninguna'}
-          onClick={() => setItemsOpen('debts')}
+          value={debtsMonthly + sumItems(profile.debtItems) > 0 ? `${money(debtsMonthly + sumItems(profile.debtItems))}/mes` : 'Ninguna'}
+          onClick={() => navigate('/deudas')}
         />
         <Row
           label="📌 Gastos fijos"
@@ -217,8 +218,15 @@ export function Profile() {
   )
 }
 
-function suggestedLimitFor(p: ProfileT) {
-  const debts = p.debtItems ? sumItems(p.debtItems) : (p.monthlyDebtPayments ?? 0)
+/** Suma de cuotas mensuales de las deudas activas, en moneda principal */
+function useDebtsMonthly() {
+  const { debts, convert } = useData()
+  return debts.filter((d) => d.balance > 0).reduce((s, d) => s + convert(d.monthlyPayment, d.currency), 0)
+}
+
+/** `debtsMonthly`: cuotas de las deudas registradas (en moneda principal). Se suman las cuotas del onboarding aún sin completar. */
+function suggestedLimitFor(p: ProfileT, debtsMonthly: number) {
+  const debts = debtsMonthly + (p.debtItems ? sumItems(p.debtItems) : (p.monthlyDebtPayments ?? 0))
   return suggestedDailyLimit(p.monthlyIncome, debts, p.savingsPct ?? 0, sumItems(p.fixedExpenses))
 }
 
@@ -273,7 +281,7 @@ function RateEditor({ code, onDone }: { code: string; onDone: () => void }) {
 
 function LimitEditor({ onDone }: { onDone: () => void }) {
   const { profile, userId } = useData()
-  const suggested = suggestedLimitFor(profile)
+  const suggested = suggestedLimitFor(profile, useDebtsMonthly())
   const [value, setValue] = useState(profile.dailyLimit ?? (suggested && suggested > 0 ? suggested : 0))
   const max = Math.max((suggested ?? value) * 2, value * 1.5, 100)
 

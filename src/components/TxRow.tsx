@@ -3,7 +3,12 @@ import { catById } from '../lib/catalog'
 import { money } from '../lib/format'
 import { useAccountName, useData } from '../lib/data'
 
-export function txVisual(tx: Transaction, accName: (id?: string) => string, currencyOf: (id?: string) => string) {
+export function txVisual(
+  tx: Transaction,
+  accName: (id?: string) => string,
+  currencyOf: (id?: string) => string,
+  debtOf: (id?: string) => { name: string; emoji: string } | undefined = () => undefined,
+) {
   const cat = catById(tx.categoryId)
   const currency = currencyOf(tx.accountId)
   const toCurrency = currencyOf(tx.toAccountId)
@@ -30,9 +35,9 @@ export function txVisual(tx: Transaction, accName: (id?: string) => string, curr
       }
     case 'pago_deuda':
       return {
-        emoji: '📉',
+        emoji: debtOf(tx.debtId)?.emoji ?? '📉',
         color: '#f59e0b',
-        title: 'Pago de deuda',
+        title: debtOf(tx.debtId) ? `Pago · ${debtOf(tx.debtId)!.name}` : 'Pago de deuda',
         sub: accName(tx.accountId),
         amount: money(-tx.amount, { sign: true, currency }),
         tone: 'text-warn',
@@ -60,8 +65,8 @@ export function txVisual(tx: Transaction, accName: (id?: string) => string, curr
 
 export function TxRow({ tx }: { tx: Transaction }) {
   const accName = useAccountName()
-  const { currencyOf } = useData()
-  const v = txVisual(tx, accName, currencyOf)
+  const { currencyOf, debts } = useData()
+  const v = txVisual(tx, accName, currencyOf, (id) => debts.find((d) => d.id === id))
   return (
     <div className="flex items-center gap-3 px-3 py-3">
       <div

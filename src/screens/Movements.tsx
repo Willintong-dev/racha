@@ -5,9 +5,8 @@ import { useData } from '../lib/data'
 import type { Transaction, TxType } from '../lib/db'
 import { CATEGORIES, catById } from '../lib/catalog'
 import { dayLabel, money, monthLabel, todayStr, uid } from '../lib/format'
-import { deleteTransaction, saveTransaction } from '../lib/actions'
+import { deleteTransaction, restoreTransaction, saveTransaction } from '../lib/actions'
 import { celebrate } from '../lib/celebrate'
-import { db } from '../lib/db'
 import { Chip, Empty, Page } from '../components/ui'
 import { TxRow } from '../components/TxRow'
 import { useQuickAdd } from '../components/QuickAdd'
@@ -273,7 +272,7 @@ export function Movements() {
               type="button"
               className="font-black text-accent"
               onClick={async () => {
-                await db.transactions.put(undo)
+                await restoreTransaction(undo)
                 setUndo(null)
               }}
             >

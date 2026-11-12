@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { dueInfo, dueLabel } from '../lib/debts'
+import { payDebt } from '../lib/actions'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
@@ -76,6 +78,8 @@ export function Home() {
           <ChevronRight className="text-muted" />
         </motion.button>
       )}
+
+      <UpcomingPayments />
 
       {/* Últimos movimientos */}
       <div className="mt-6 mb-2 flex items-center justify-between">
@@ -221,6 +225,62 @@ function TodayRing({ spent, limit }: { spent: number; limit: number }) {
         <p className="mt-1 text-sm font-bold" style={{ color }}>
           {left >= 0 ? `Te quedan ${money(left)}` : `Te pasaste ${money(-left)}`}
         </p>
+      </div>
+    </div>
+  )
+}
+
+/** Cuotas que vencen en los próximos 5 días (o ya vencidas) y aún no se pagan este mes. */
+function UpcomingPayments() {
+  const { debts, txs } = useData()
+  const navigate = useNavigate()
+  const [paying, setPaying] = useState<string | null>(null)
+  const upcoming = debts
+    .filter((d) => d.balance > 0)
+    .map((d) => ({ debt: d, info: dueInfo(d, txs) }))
+    .filter(({ info }) => !info.paidThisMonth && info.daysLeft <= 5)
+    .sort((a, b) => a.info.daysLeft - b.info.daysLeft)
+  if (!upcoming.length) return null
+
+  return (
+    <div className="mt-6">
+      <h2 className="mb-2 text-lg font-extrabold">Próximos pagos</h2>
+      <div className="flex flex-col gap-2">
+        <AnimatePresence initial={false}>
+          {upcoming.map(({ debt, info }) => (
+            <motion.div
+              key={debt.id}
+              initial={{ opacity: 0, x: -12 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 60, height: 0, marginTop: 0 }}
+              className={`flex items-center gap-3 rounded-3xl p-3 ${info.overdue ? 'bg-bad/15' : 'bg-card'}`}
+            >
+              <button type="button" onClick={() => navigate(`/deudas/${debt.id}`)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-white/5 text-xl">{debt.emoji}</span>
+                <span className="min-w-0">
+                  <b className="block truncate">{debt.name}</b>
+                  <span className={`text-xs font-bold ${info.overdue ? 'text-bad' : info.daysLeft <= 1 ? 'text-warn' : 'text-muted'}`}>
+                    {dueLabel(info)} · {money(info.remainingThisMonth, { currency: debt.currency })}
+                  </span>
+                </span>
+              </button>
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.9 }}
+                disabled={paying === debt.id}
+                onClick={async () => {
+                  setPaying(debt.id)
+                  navigator.vibrate?.([10, 40, 20])
+                  await payDebt(debt, info.remainingThisMonth, 'cuota')
+                  setPaying(null)
+                }}
+                className="grad shrink-0 rounded-2xl px-4 py-2.5 text-sm font-extrabold text-white disabled:opacity-50"
+              >
+                Pagar
+              </motion.button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
     </div>
   )

@@ -11,7 +11,7 @@ import { useQuickAdd } from '../components/QuickAdd'
 import { NewAccountSheet } from '../components/NewAccountSheet'
 
 export function Accounts() {
-  const { accounts, balances, toMain, main, missing } = useData()
+  const { accounts, balances, toMain, main, missing, debts: allDebts, convert } = useData()
   const quickAdd = useQuickAdd()
   const [newOpen, setNewOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
@@ -20,8 +20,8 @@ export function Accounts() {
   const active = accounts.filter((a) => !a.archived).sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.createdAt - b.createdAt)
   const archived = accounts.filter((a) => a.archived)
   const available = active.reduce((s, a) => s + toMain(balances.get(a.id) ?? 0, a.id), 0)
-  // Las deudas llegan en la Fase 2; por ahora patrimonio = disponible
-  const debts = 0
+  // Patrimonio neto = lo que tienes − lo que debes (en moneda principal)
+  const debts = allDebts.reduce((s, d) => s + convert(d.balance, d.currency), 0)
 
   return (
     <Page>

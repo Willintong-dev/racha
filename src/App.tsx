@@ -16,6 +16,8 @@ import { Movements } from './screens/Movements'
 import { Accounts } from './screens/Accounts'
 import { AccountDetail } from './screens/AccountDetail'
 import { Debts } from './screens/Debts'
+import { DebtDetail } from './screens/DebtDetail'
+import { DebtSimulator } from './screens/DebtSimulator'
 import { Profile } from './screens/Profile'
 
 function AppLayout() {
@@ -81,6 +83,8 @@ function Root() {
         <Route path="cuentas" element={<Accounts />} />
         <Route path="cuentas/:id" element={<AccountDetail />} />
         <Route path="deudas" element={<Debts />} />
+        <Route path="deudas/simulador" element={<DebtSimulator />} />
+        <Route path="deudas/:id" element={<DebtDetail />} />
         <Route path="perfil" element={<Profile />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

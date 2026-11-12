@@ -35,6 +35,8 @@ export interface Transaction {
   toAccountId?: string
   /** Transferencia entre monedas distintas: cuánto llegó, en la moneda de `toAccountId` */
   toAmount?: number
+  /** pago_deuda: a qué deuda se abonó */
+  debtId?: string
   categoryId?: string
   /** Fecha local YYYY-MM-DD */
   date: string
@@ -70,8 +72,39 @@ export interface Profile {
   fixedExpenses?: MonthlyItem[]
   savingsPct?: number
   dailyLimit?: number
+  /** Plan elegido en el simulador de deudas */
+  debtPlan?: { strategy: DebtStrategy; extra: number }
   onboarded: boolean
 }
+
+export interface Debt {
+  id: string
+  userId: string
+  name: string
+  emoji: string
+  /** Moneda de la deuda = moneda de la cuenta desde la que se paga */
+  currency: string
+  /** Saldo cuando se registró la deuda (para la barra de progreso) */
+  originalBalance: number
+  /** Lo que falta pagar hoy. Baja con cada pago; "Ajustar saldo" lo iguala al banco. */
+  balance: number
+  monthlyPayment: number
+  /** Día del mes en que vence la cuota (1-31) */
+  dueDay: number
+  /** Tasa de interés anual en % (opcional) */
+  annualRate?: number
+  payFromAccountId: string
+  createdAt: number
+  paidOffAt?: number
+  /** Mes (YYYY-MM) en que ya se dio XP por cuota: borrar y repetir un pago no vuelve a dar XP */
+  xpCuotaMonth?: string
+  /** Día (YYYY-MM-DD) en que ya se dio XP por pago extra */
+  xpExtraDay?: string
+  /** Ya se dio el XP por liquidarla */
+  xpPayoff?: boolean
+}
+
+export type DebtStrategy = 'avalancha' | 'bola'
 
 /** Usuarios del "modo local" (cuando no hay Supabase configurado). */
 export interface LocalUser {
@@ -86,6 +119,7 @@ class RachaDB extends Dexie {
   transactions!: EntityTable<Transaction, 'id'>
   profiles!: EntityTable<Profile, 'userId'>
   localUsers!: EntityTable<LocalUser, 'id'>
+  debts!: EntityTable<Debt, 'id'>
 
   constructor() {
     super('racha')
@@ -108,6 +142,8 @@ class RachaDB extends Dexie {
             if (!a.currency) a.currency = cur.get(a.userId) ?? 'COP'
           })
       })
+    // v3: deudas
+    this.version(3).stores({ debts: 'id, userId' })
   }
 }
 

@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { dueInfo, dueLabel } from '../lib/debts'
 import { payDebt } from '../lib/actions'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 import { useData } from '../lib/data'
-import { computeStreak, levelFromXp, spentOn } from '../lib/finance'
+import { spentOn } from '../lib/finance'
 import { money, todayStr } from '../lib/format'
 import { AnimatedMoney, Avatar, Empty, Page, Ring, XpBar } from '../components/ui'
 import { TxRow } from '../components/TxRow'
@@ -18,8 +18,7 @@ export function Home() {
   const quickAdd = useQuickAdd()
   const [streakOpen, setStreakOpen] = useState(false)
 
-  const lvl = levelFromXp(profile.xp)
-  const streak = useMemo(() => computeStreak(txs, profile.dailyLimit, toMain, fixedCats), [txs, profile.dailyLimit, toMain, fixedCats])
+  const { streak, level: lvl } = useData()
   const spentToday = spentOn(txs, todayStr(), toMain, fixedCats)
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches'
@@ -28,7 +27,7 @@ export function Home() {
     <Page>
       {/* Cabecera: avatar, nivel, XP y racha */}
       <div className="flex items-center gap-3">
-        <Avatar index={profile.avatar} size={52} onClick={() => navigate('/perfil')} />
+        <Avatar index={profile.avatar} size={52} look={profile.wardrobe} onClick={() => navigate('/perfil')} />
         <button type="button" onClick={() => navigate('/perfil')} className="min-w-0 flex-1 text-left">
           <p className="truncate text-sm text-muted">
             {greeting}, <b className="text-ink">{profile.name}</b>

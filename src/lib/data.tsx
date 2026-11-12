@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useMemo, type ReactNode } from 
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Account, type Debt, type Profile, type Transaction } from './db'
 import { useAuth } from './auth'
-import { computeBalances, fixedCategories, makeToMain, missingRates, rateOf, type ToMain } from './finance'
+import { computeBalances, computeStreak, fixedCategories, levelFromXp, makeToMain, missingRates, rateOf, type ToMain } from './finance'
 import { setMainCurrency } from './format'
 import { Splash } from '../screens/Splash'
 
@@ -27,6 +27,9 @@ interface Data {
   missing: string[]
   /** Categorías de gastos fijos (no cuentan contra el límite diario) */
   fixedCats: Set<string>
+  /** Racha calculada una sola vez para toda la app (incluye días salvados con congelador) */
+  streak: ReturnType<typeof computeStreak>
+  level: ReturnType<typeof levelFromXp>
 }
 
 const Ctx = createContext<Data | null>(null)
@@ -62,13 +65,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const missing = useMemo(() => missingRates(accounts ?? [], main, rates), [accounts, main, rates])
 
   const fixedCats = useMemo(() => fixedCategories(profile?.fixedExpenses), [profile?.fixedExpenses])
+  const frozen = useMemo(() => new Set(profile?.frozenDays ?? []), [profile?.frozenDays])
+  const streak = useMemo(
+    () => computeStreak(txs ?? [], profile?.dailyLimit, toMain, fixedCats, frozen),
+    [txs, profile?.dailyLimit, toMain, fixedCats, frozen],
+  )
+  const level = useMemo(() => levelFromXp(profile?.xp ?? 0), [profile?.xp])
   const currencyOf = useCallback((id?: string) => accounts?.find((a) => a.id === id)?.currency ?? main, [accounts, main])
 
   if (!profile || !accounts || !txs || !debts) return <Splash />
   setMainCurrency(main)
 
   return (
-    <Ctx.Provider value={{ userId, profile, accounts, txs, debts, balances, main, toMain, convert, currencyOf, missing, fixedCats }}>
+    <Ctx.Provider value={{ userId, profile, accounts, txs, debts, balances, main, toMain, convert, currencyOf, missing, fixedCats, streak, level }}>
       {children}
     </Ctx.Provider>
   )

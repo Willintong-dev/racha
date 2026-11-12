@@ -74,8 +74,15 @@ export function spentOn(txs: Transaction[], date: string, toMain: ToMain = ident
  * Racha: un día es "bueno" si registraste al menos 1 movimiento
  * y (si tienes límite diario) no te pasaste.
  * Hoy aún no termina: si hoy no has registrado nada, la racha sigue viva desde ayer.
+ * Los días salvados con congelador (`frozen`) mantienen la racha y cuentan en ella.
  */
-export function computeStreak(txs: Transaction[], dailyLimit?: number, toMain: ToMain = identity, exclude?: Set<string>) {
+export function computeStreak(
+  txs: Transaction[],
+  dailyLimit?: number,
+  toMain: ToMain = identity,
+  exclude?: Set<string>,
+  frozen: Set<string> = new Set(),
+) {
   const byDay = new Map<string, { count: number; spent: number }>()
   for (const t of txs) {
     if (t.type === 'ajuste') continue
@@ -90,6 +97,7 @@ export function computeStreak(txs: Transaction[], dailyLimit?: number, toMain: T
     return !dailyLimit || d.spent <= dailyLimit
   }
   const goodDays = new Set([...byDay.keys()].filter(isGood))
+  const kept = new Set([...goodDays, ...frozen])
 
   const today = todayStr()
   let current = 0
@@ -99,7 +107,7 @@ export function computeStreak(txs: Transaction[], dailyLimit?: number, toMain: T
     current = 0 // hoy te pasaste del límite
   } else {
     if (!isGood(today)) day = addDays(today, -1)
-    while (goodDays.has(day)) {
+    while (kept.has(day)) {
       current++
       day = addDays(day, -1)
     }
@@ -108,12 +116,12 @@ export function computeStreak(txs: Transaction[], dailyLimit?: number, toMain: T
   let best = 0
   let run = 0
   let prev = ''
-  for (const d of [...goodDays].sort()) {
+  for (const d of [...kept].sort()) {
     run = prev && addDays(prev, 1) === d ? run + 1 : 1
     best = Math.max(best, run)
     prev = d
   }
-  return { current, best: Math.max(best, current), goodDays, todayDone: isGood(today) }
+  return { current, best: Math.max(best, current), goodDays, frozenDays: frozen, todayDone: isGood(today), isGood }
 }
 
 /** Para pasar del nivel L al L+1 se necesitan L × 100 XP. */

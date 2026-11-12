@@ -74,6 +74,14 @@ export interface Profile {
   dailyLimit?: number
   /** Plan elegido en el simulador de deudas */
   debtPlan?: { strategy: DebtStrategy; extra: number }
+  /** Logros desbloqueados: id → fecha (ms) */
+  achievements?: Record<string, number>
+  /** Lo que tiene puesto el avatar (ids del catálogo del vestidor) */
+  wardrobe?: Wardrobe
+  /** Congeladores de racha disponibles. undefined = 1 (regalo de bienvenida) */
+  freezes?: number
+  /** Días (YYYY-MM-DD) salvados con un congelador */
+  frozenDays?: string[]
   onboarded: boolean
 }
 
@@ -105,6 +113,13 @@ export interface Debt {
 }
 
 export type DebtStrategy = 'avalancha' | 'bola'
+
+export interface Wardrobe {
+  bg?: string
+  hat?: string
+  frame?: string
+  pet?: string
+}
 
 /** Usuarios del "modo local" (cuando no hay Supabase configurado). */
 export interface LocalUser {

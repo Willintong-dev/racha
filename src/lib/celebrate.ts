@@ -1,6 +1,8 @@
 export type CelebrateEvent =
   | { kind: 'xp'; amount: number; label?: string }
-  | { kind: 'levelup'; level: number }
+  | { kind: 'levelup'; level: number; unlocked?: number; gotFreeze?: boolean }
+  | { kind: 'achievement'; items: { emoji: string; name: string }[] }
+  | { kind: 'freeze'; text: string }
   | { kind: 'payoff'; name: string; emoji: string }
   | { kind: 'warn'; text: string }
   | { kind: 'info'; text: string }

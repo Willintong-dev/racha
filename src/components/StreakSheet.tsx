@@ -1,12 +1,11 @@
 import { motion } from 'framer-motion'
 import { useData } from '../lib/data'
-import { computeStreak } from '../lib/finance'
 import { monthLabel, toDateStr, todayStr } from '../lib/format'
 import { Sheet } from './ui'
+import { freezesOf } from '../lib/game'
 
 export function StreakSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { txs, profile, toMain, fixedCats } = useData()
-  const s = computeStreak(txs, profile.dailyLimit, toMain, fixedCats)
+  const { profile, streak: s } = useData()
   const now = new Date()
   const first = new Date(now.getFullYear(), now.getMonth(), 1)
   const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
@@ -40,6 +39,7 @@ export function StreakSheet({ open, onClose }: { open: boolean; onClose: () => v
         {Array.from({ length: days }).map((_, i) => {
           const ds = toDateStr(new Date(now.getFullYear(), now.getMonth(), i + 1))
           const good = s.goodDays.has(ds)
+          const frozen = !good && s.frozenDays.has(ds)
           return (
             <motion.div
               key={ds}
@@ -47,10 +47,10 @@ export function StreakSheet({ open, onClose }: { open: boolean; onClose: () => v
               animate={{ scale: 1 }}
               transition={{ delay: i * 0.012 }}
               className={`grid aspect-square place-items-center rounded-xl font-bold ${
-                good ? 'bg-orange-500/25 text-base' : 'bg-card2 text-muted'
+                good ? 'bg-orange-500/25 text-base' : frozen ? 'bg-sky-400/25 text-base' : 'bg-card2 text-muted'
               } ${ds === today ? 'ring-2 ring-accent' : ''}`}
             >
-              {good ? '🔥' : i + 1}
+              {good ? '🔥' : frozen ? '🧊' : i + 1}
             </motion.div>
           )
         })}
@@ -61,7 +61,9 @@ export function StreakSheet({ open, onClose }: { open: boolean; onClose: () => v
           <b className="text-ink">¿Cómo cuenta un día?</b> Registra al menos 1 movimiento
           {profile.dailyLimit ? ' y no te pases de tu límite diario' : ''}.
         </p>
-        <p className="mt-2">🧊 Los congeladores de racha llegan en la Fase 3.</p>
+        <p className="mt-2">
+          🧊 Tienes <b className="text-ink">{freezesOf(profile)}</b> {freezesOf(profile) === 1 ? 'congelador' : 'congeladores'}. Si un día no cumples, usamos uno solo para salvar tu racha. Ganas uno al subir de nivel.
+        </p>
       </div>
     </Sheet>
   )

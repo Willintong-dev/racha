@@ -19,6 +19,9 @@ import { Debts } from './screens/Debts'
 import { DebtDetail } from './screens/DebtDetail'
 import { DebtSimulator } from './screens/DebtSimulator'
 import { Profile } from './screens/Profile'
+import { Wardrobe } from './screens/Wardrobe'
+import { Achievements } from './screens/Achievements'
+import { GameEngine } from './components/GameEngine'
 
 function AppLayout() {
   const location = useLocation()
@@ -40,6 +43,7 @@ function AppLayout() {
           </AnimatePresence>
         </div>
         <TabBar />
+        <GameEngine />
       </QuickAddProvider>
     </DataProvider>
   )
@@ -86,6 +90,8 @@ function Root() {
         <Route path="deudas/simulador" element={<DebtSimulator />} />
         <Route path="deudas/:id" element={<DebtDetail />} />
         <Route path="perfil" element={<Profile />} />
+        <Route path="perfil/vestidor" element={<Wardrobe />} />
+        <Route path="perfil/logros" element={<Achievements />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

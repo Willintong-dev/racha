@@ -1,23 +1,83 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { animate, AnimatePresence, motion, useDragControls } from 'framer-motion'
 import { AVATARS } from '../lib/catalog'
+import type { Wardrobe } from '../lib/db'
+import { itemById } from '../lib/game'
 import { money } from '../lib/format'
 
 export function Page({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <div className={`px-4 pt-[calc(env(safe-area-inset-top)+16px)] ${className}`}>{children}</div>
 }
 
-export function Avatar({ index, size = 48, onClick }: { index: number; size?: number; onClick?: () => void }) {
+/**
+ * Avatar con lo que tenga puesto: fondo, marco, accesorio (sombrero/gafas) y mascota.
+ * `look` viene de profile.wardrobe; sin `look` se ve el personaje base.
+ */
+export function Avatar({
+  index,
+  size = 48,
+  onClick,
+  look,
+}: {
+  index: number
+  size?: number
+  onClick?: () => void
+  look?: Wardrobe
+}) {
   const a = AVATARS[index] ?? AVATARS[0]
+  const bg = itemById(look?.bg)?.style ?? `linear-gradient(135deg, ${a.from}, ${a.to})`
+  const frame = itemById(look?.frame)?.style
+  const hat = itemById(look?.hat)
+  const pet = itemById(look?.pet)
+  const ring = Math.max(2, size * 0.06)
+  const isGlasses = hat?.id === 'hat_gafas'
+
   return (
     <motion.button
       type="button"
       whileTap={{ scale: 0.9 }}
       onClick={onClick}
-      className="grid shrink-0 place-items-center rounded-full shadow-lg ring-2 ring-white/15"
-      style={{ width: size, height: size, background: `linear-gradient(135deg, ${a.from}, ${a.to})`, fontSize: size * 0.55 }}
+      className="relative shrink-0 rounded-full"
+      style={{ width: size, height: size }}
     >
-      <span className="leading-none">{a.emoji}</span>
+      {/* Marco: anillo de color (o degradado si tiene varios colores) que gira suave */}
+      {frame ? (
+        <motion.span
+          className="absolute rounded-full"
+          style={{
+            inset: -ring,
+            background: frame.includes(',') ? `conic-gradient(${frame},${frame.split(',')[0]})` : frame,
+          }}
+          animate={frame.includes(',') ? { rotate: 360 } : undefined}
+          transition={{ repeat: Infinity, duration: 6, ease: 'linear' }}
+        />
+      ) : (
+        <span className="absolute inset-0 rounded-full ring-2 ring-white/15" />
+      )}
+      <span
+        className="absolute inset-0 grid place-items-center overflow-hidden rounded-full shadow-lg"
+        style={{ background: bg, fontSize: size * 0.55 }}
+      >
+        <span className="leading-none">{a.emoji}</span>
+      </span>
+      {hat?.emoji && (
+        <span
+          className="pointer-events-none absolute left-1/2 -translate-x-1/2 leading-none"
+          style={{ top: isGlasses ? size * 0.3 : -size * 0.3, fontSize: size * (isGlasses ? 0.36 : 0.42) }}
+        >
+          {hat.emoji}
+        </span>
+      )}
+      {pet?.emoji && (
+        <motion.span
+          className="pointer-events-none absolute leading-none"
+          style={{ right: -size * 0.14, bottom: -size * 0.08, fontSize: size * 0.36 }}
+          animate={{ y: [0, -size * 0.05, 0] }}
+          transition={{ repeat: Infinity, duration: 1.8, ease: 'easeInOut' }}
+        >
+          {pet.emoji}
+        </motion.span>
+      )}
     </motion.button>
   )
 }

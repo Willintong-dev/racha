@@ -1,5 +1,6 @@
 import { db, type Account, type AccountType, type Debt, type Transaction } from './db'
 import { paidInMonth } from './debts'
+import { FREEZE_MAX, freezesOf, itemsForLevel, type Achievement } from './game'
 import { celebrate } from './celebrate'
 import { fixedCategories, levelFromXp, makeToMain, rateOf, spentOn } from './finance'
 import { money, todayStr, uid } from './format'
@@ -14,10 +15,43 @@ export async function addXp(userId: string, amount: number, label?: string) {
   if (!p) return
   const before = levelFromXp(p.xp).level
   const xp = p.xp + amount
-  await db.profiles.update(userId, { xp })
-  celebrate.emit({ kind: 'xp', amount, label })
   const after = levelFromXp(xp).level
-  if (after > before) celebrate.emit({ kind: 'levelup', level: after })
+  // Cada nivel nuevo regala un congelador de racha (máximo FREEZE_MAX)
+  const freezes = after > before ? Math.min(FREEZE_MAX, freezesOf(p) + (after - before)) : p.freezes
+  await db.profiles.update(userId, { xp, freezes })
+  celebrate.emit({ kind: 'xp', amount, label })
+  if (after > before) {
+    const items: string[] = []
+    for (let l = before + 1; l <= after; l++) items.push(...itemsForLevel(l).map((i) => i.emoji ?? '🎨'))
+    celebrate.emit({ kind: 'levelup', level: after, unlocked: items.length, gotFreeze: freezesOf(p) < FREEZE_MAX })
+  }
+}
+
+/** Desbloquea logros (una sola celebración aunque sean varios) y suma su XP. */
+export async function unlockAchievements(userId: string, list: Achievement[]) {
+  const p = await db.profiles.get(userId)
+  if (!p || list.length === 0) return
+  const achievements = { ...p.achievements }
+  const fresh = list.filter((a) => !achievements[a.id])
+  if (fresh.length === 0) return
+  for (const a of fresh) achievements[a.id] = Date.now()
+  await db.profiles.update(userId, { achievements })
+  celebrate.emit({ kind: 'achievement', items: fresh.map((a) => ({ emoji: a.emoji, name: a.name })) })
+  await addXp(userId, fresh.reduce((s, a) => s + a.xp, 0), fresh.length === 1 ? `Logro: ${fresh[0].name}` : `${fresh.length} logros`)
+}
+
+/** Gasta congeladores para salvar días sin cumplir y mantener la racha. */
+export async function applyFreezes(userId: string, days: string[], streakAfter: number) {
+  const p = await db.profiles.get(userId)
+  if (!p || days.length === 0 || freezesOf(p) < days.length) return
+  await db.profiles.update(userId, {
+    freezes: freezesOf(p) - days.length,
+    frozenDays: [...(p.frozenDays ?? []), ...days],
+  })
+  celebrate.emit({
+    kind: 'freeze',
+    text: `🧊 Usamos ${days.length === 1 ? 'un congelador' : `${days.length} congeladores`}: tu racha de ${streakAfter} días sigue viva`,
+  })
 }
 
 export async function saveTransaction(tx: Transaction, isNew: boolean) {
@@ -33,6 +67,10 @@ export async function saveTransaction(tx: Transaction, isNew: boolean) {
     })
   } else {
     await db.transactions.put(tx)
+  }
+  // Liquidar una deuda se celebra primero, antes de cualquier XP que pueda disparar "Subiste de nivel"
+  if (debtBefore && debtBefore.balance > 0 && debtBefore.balance - tx.amount <= 0.005) {
+    celebrate.emit({ kind: 'payoff', name: debtBefore.name, emoji: debtBefore.emoji })
   }
 
   if (isNew) {
@@ -158,6 +196,7 @@ async function applyToDebt(debtId: string, delta: number) {
  * Liquidar la deuda = +500 y celebración.
  */
 async function rewardDebtPayment(tx: Transaction, before: Debt, paidBefore: number) {
+  const paysOff = before.balance > 0 && before.balance - tx.amount <= 0.005
   const cuota = Math.min(before.monthlyPayment, before.balance + paidBefore)
   const completesCuota = paidBefore < cuota - 0.005 && paidBefore + tx.amount >= cuota - 0.005
   const isExtra = paidBefore >= cuota - 0.005 || paidBefore + tx.amount > cuota + 0.005
@@ -171,13 +210,12 @@ async function rewardDebtPayment(tx: Transaction, before: Debt, paidBefore: numb
     await db.debts.update(before.id, { xpExtraDay: tx.date })
     await addXp(tx.userId, XP.extra, 'Pago extra')
   }
-  if (before.balance > 0 && before.balance - tx.amount <= 0.005) {
-    // La celebración siempre; los 500 XP solo la primera vez
+  if (paysOff) {
+    // Los 500 XP solo la primera vez que se liquida
     if (!before.xpPayoff) {
       await db.debts.update(before.id, { xpPayoff: true })
       await addXp(tx.userId, XP.payoff, 'Deuda liquidada')
     }
-    celebrate.emit({ kind: 'payoff', name: before.name, emoji: before.emoji })
   }
 }
 

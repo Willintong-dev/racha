@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, ChevronRight, LogOut } from 'lucide-react'
 import { useData } from '../lib/data'
 import { useAuth } from '../lib/auth'
 import { db, type MonthlyItem, type Profile as ProfileT } from '../lib/db'
-import { AVATARS, DEBT_PRESETS, FIXED_PRESETS } from '../lib/catalog'
-import { computeStreak, levelFromXp, suggestedDailyLimit, sumItems } from '../lib/finance'
+import { DEBT_PRESETS, FIXED_PRESETS } from '../lib/catalog'
+import { ACHIEVEMENTS, FREEZE_MAX, freezesOf, isUnlocked, WARDROBE } from '../lib/game'
+import { suggestedDailyLimit, sumItems } from '../lib/finance'
 import { currencyInfo, currencySymbol, formatTyping, money, parseAmount } from '../lib/format'
 import { celebrate } from '../lib/celebrate'
 import { changeMainCurrency, setRate } from '../lib/actions'
@@ -15,7 +16,7 @@ import { RateInput } from '../components/currency'
 import { MonthlyItems } from '../components/MonthlyItems'
 
 export function Profile() {
-  const { profile, txs, userId, accounts, main, toMain, fixedCats } = useData()
+  const { profile, userId, accounts, main } = useData()
   const { signOut, mode, user } = useAuth()
   const navigate = useNavigate()
   const [limitOpen, setLimitOpen] = useState(false)
@@ -25,11 +26,10 @@ export function Profile() {
   const [offerLimit, setOfferLimit] = useState(false)
   const debtsMonthly = useDebtsMonthly()
   const suggestedNow = suggestedLimitFor(profile, debtsMonthly)
-  const [avatarOpen, setAvatarOpen] = useState(false)
+  const [freezeInfo, setFreezeInfo] = useState(false)
   const [rateFor, setRateFor] = useState<string | null>(null)
 
-  const lvl = levelFromXp(profile.xp)
-  const streak = useMemo(() => computeStreak(txs, profile.dailyLimit, toMain, fixedCats), [txs, profile.dailyLimit, toMain, fixedCats])
+  const { streak, level: lvl } = useData()
   // Monedas que usas en tus cuentas activas
   const used = [...new Set([main, ...accounts.filter((a) => !a.archived).map((a) => a.currency)])]
   const foreign = used.filter((c) => c !== main)
@@ -42,8 +42,9 @@ export function Profile() {
 
       <div className="flex flex-col items-center text-center">
         <motion.div animate={{ y: [0, -6, 0] }} transition={{ repeat: Infinity, duration: 3 }}>
-          <Avatar index={profile.avatar} size={110} onClick={() => setAvatarOpen(true)} />
+          <Avatar index={profile.avatar} size={110} look={profile.wardrobe} onClick={() => navigate('/perfil/vestidor')} />
         </motion.div>
+        <p className="mt-1 text-xs text-muted">Toca tu avatar para vestirlo</p>
         <p className="mt-3 text-2xl font-black">{profile.name}</p>
         <p className="text-sm text-muted">{user?.email}</p>
         <div className="mt-4 w-full max-w-xs">
@@ -62,6 +63,40 @@ export function Profile() {
         <Stat emoji="🏆" value={streak.best} label="Mejor racha" />
         <Stat emoji="⭐" value={profile.xp} label="XP total" />
       </div>
+
+      {/* Juego: logros, vestidor y congeladores */}
+      <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+        <GameTile
+          emoji="🏅"
+          title="Logros"
+          value={`${Object.keys(profile.achievements ?? {}).length}/${ACHIEVEMENTS.length}`}
+          onClick={() => navigate('/perfil/logros')}
+        />
+        <GameTile
+          emoji="👕"
+          title="Vestidor"
+          value={`${WARDROBE.filter((w) => isUnlocked(w, lvl.level, profile.achievements)).length}/${WARDROBE.length}`}
+          onClick={() => navigate('/perfil/vestidor')}
+        />
+        <GameTile emoji="🧊" title="Congeladores" value={`${freezesOf(profile)}/${FREEZE_MAX}`} onClick={() => setFreezeInfo(true)} />
+      </div>
+      <AnimatePresence>
+        {freezeInfo && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            onClick={() => setFreezeInfo(false)}
+            className="mt-3 overflow-hidden rounded-2xl bg-sky-400/10 p-3 text-sm"
+          >
+            <b>🧊 Congeladores de racha</b>
+            <p className="mt-1 text-muted">
+              Si un día no registras nada o te pasas del límite, usamos uno automáticamente para que tu racha no se pierda. Ganas +1 cada vez que
+              subes de nivel (máximo {FREEZE_MAX}).
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {offerLimit && suggestedNow !== undefined && suggestedNow > 0 && suggestedNow !== profile.dailyLimit && (
@@ -160,7 +195,6 @@ export function Profile() {
 
       <h2 className="mt-8 mb-2 text-lg font-extrabold">Próximamente</h2>
       <div className="overflow-hidden rounded-3xl bg-card text-muted">
-        <Row label="🏅 Logros y vestidor del avatar" value="Fase 3" />
         <Row label="🏆 Ranking de salud financiera" value="Fase 4" />
       </div>
 
@@ -174,24 +208,6 @@ export function Profile() {
       <p className="mt-4 text-center text-xs text-muted">
         {mode === 'local' ? 'Modo local: tus datos viven solo en este dispositivo.' : 'Sesión con Supabase.'}
       </p>
-
-      <Sheet open={avatarOpen} onClose={() => setAvatarOpen(false)} title="Elige tu compañero">
-        <div className="grid grid-cols-3 gap-4 py-2">
-          {AVATARS.map((_, i) => (
-            <motion.div key={i} className="flex justify-center" animate={{ scale: profile.avatar === i ? 1.1 : 1, opacity: profile.avatar === i ? 1 : 0.6 }}>
-              <Avatar
-                index={i}
-                size={80}
-                onClick={() => {
-                  db.profiles.update(userId, { avatar: i })
-                  setAvatarOpen(false)
-                }}
-              />
-            </motion.div>
-          ))}
-        </div>
-        <p className="mt-4 text-center text-sm text-muted">Ropa, fondos y mascotas se desbloquean subiendo de nivel (Fase 3).</p>
-      </Sheet>
 
       <Sheet open={!!rateFor} onClose={() => setRateFor(null)} title={`Tasa de ${rateFor ?? ''}`}>
         {rateFor && <RateEditor code={rateFor} onDone={() => setRateFor(null)} />}
@@ -356,6 +372,16 @@ function LimitEditor({ onDone }: { onDone: () => void }) {
         </BigButton>
       )}
     </div>
+  )
+}
+
+function GameTile({ emoji, title, value, onClick }: { emoji: string; title: string; value: string; onClick: () => void }) {
+  return (
+    <motion.button type="button" whileTap={{ scale: 0.94 }} onClick={onClick} className="rounded-3xl border border-accent/30 bg-accent/10 p-3">
+      <div className="text-2xl">{emoji}</div>
+      <p className="text-lg font-black">{value}</p>
+      <p className="text-xs text-muted">{title}</p>
+    </motion.button>
   )
 }
 

@@ -3,7 +3,7 @@ import { AnimatePresence, motion, useMotionValue, useTransform } from 'framer-mo
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
 import { useData } from '../lib/data'
 import type { Transaction, TxType } from '../lib/db'
-import { CATEGORIES, catById } from '../lib/catalog'
+import { catById } from '../lib/catalog'
 import { dayLabel, money, monthLabel, todayStr, uid } from '../lib/format'
 import { deleteTransaction, restoreTransaction, saveTransaction } from '../lib/actions'
 import { celebrate } from '../lib/celebrate'
@@ -11,7 +11,16 @@ import { Chip, Empty, Page } from '../components/ui'
 import { TxRow } from '../components/TxRow'
 import { useQuickAdd } from '../components/QuickAdd'
 
-type TypeFilter = 'todos' | 'gasto' | 'ingreso' | 'transferencia'
+type TypeFilter = 'todos' | 'gasto' | 'ingreso' | 'transferencia' | 'pago_deuda'
+type DonutKind = 'todo' | 'gasto' | 'ingreso'
+/** Un trozo de la dona */
+interface Seg {
+  id: string
+  value: number
+  color: string
+  emoji: string
+  name: string
+}
 
 export function Movements() {
   const { txs, accounts, toMain, main, currencyOf } = useData()
@@ -23,7 +32,7 @@ export function Movements() {
   const [type, setType] = useState<TypeFilter>('todos')
   const [cat, setCat] = useState<string | undefined>()
   /** Qué muestra la dona: gastos o ingresos por categoría */
-  const [donutKind, setDonutKind] = useState<'gasto' | 'ingreso'>('gasto')
+  const [donutKind, setDonutKind] = useState<DonutKind>('todo')
   const [acc, setAcc] = useState<string | undefined>()
   const [q, setQ] = useState('')
   const [undo, setUndo] = useState<Transaction | null>(null)
@@ -50,20 +59,37 @@ export function Movements() {
         byCat[t.type].set(id, (byCat[t.type].get(id) ?? 0) + v)
       }
     }
-    const toSegments = (m: Map<string, number>) =>
+    const toSegments = (m: Map<string, number>): Seg[] =>
       [...m.entries()]
         .filter(([, v]) => v > 0)
         .sort((a, b) => b[1] - a[1])
-        .map(([id, v]) => ({ id, value: v, cat: catById(id)! }))
-    return { inc, exp, debt, foreign, segments: { gasto: toSegments(byCat.gasto), ingreso: toSegments(byCat.ingreso) } }
+        .map(([id, v]) => {
+          const c = catById(id)!
+          return { id, value: v, color: c.color, emoji: c.emoji, name: c.name }
+        })
+    // Vista "Todo": el mes completo en una dona (los ids con "k:" son tipos, no categorías)
+    const todo: Seg[] = [
+      { id: 'k:ingreso', value: inc, color: '#34d399', emoji: '💰', name: 'Ingresos' },
+      { id: 'k:gasto', value: exp, color: '#f87171', emoji: '💸', name: 'Gastos' },
+      { id: 'k:pago_deuda', value: debt, color: '#fbbf24', emoji: '📉', name: 'Pagos de deuda' },
+    ].filter((s) => s.value > 0)
+    return { inc, exp, debt, foreign, segments: { todo, gasto: toSegments(byCat.gasto), ingreso: toSegments(byCat.ingreso) } }
   }, [monthTxs, toMain, currencyOf, main])
 
   const segments = summary.segments[donutKind]
-  const donutTotal = donutKind === 'gasto' ? summary.exp : summary.inc
-  const switchDonut = (k: 'gasto' | 'ingreso') => {
-    if (k === donutKind) return
+  const donutTotal = segments.reduce((s, x) => s + x.value, 0)
+  const balance = summary.inc - summary.exp - summary.debt
+  /** Cambia la vista de la dona y filtra la lista al mismo tipo */
+  const showKind = (k: DonutKind) => {
     setDonutKind(k)
     setCat(undefined)
+    setType(k === 'todo' ? 'todos' : k)
+  }
+  const onSegment = (id: string) => {
+    if (!id.startsWith('k:')) return setCat(id === cat ? undefined : id)
+    const kind = id.slice(2) as 'ingreso' | 'gasto' | 'pago_deuda'
+    if (kind === 'pago_deuda') setType(type === 'pago_deuda' ? 'todos' : 'pago_deuda')
+    else showKind(kind)
   }
 
   const filtered = useMemo(() => {
@@ -137,6 +163,29 @@ export function Movements() {
           </button>
         </div>
 
+        {/* Vista de la dona: todo el mes o el detalle por categoría */}
+        <div className="mt-3 grid grid-cols-3 gap-1 rounded-2xl bg-card2 p-1" onPointerDown={(e) => e.stopPropagation()}>
+          {(
+            [
+              ['todo', 'Todo'],
+              ['gasto', 'Gastos'],
+              ['ingreso', 'Ingresos'],
+            ] as const
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                showKind(k)
+              }}
+              className={`rounded-xl py-1.5 text-xs font-extrabold transition-colors ${donutKind === k ? 'bg-accent text-white' : 'text-muted'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <div className="mt-3 flex items-center gap-4">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
@@ -149,17 +198,29 @@ export function Movements() {
               <Donut
                 segments={segments}
                 total={donutTotal}
-                label={donutKind === 'gasto' ? 'GASTOS' : 'INGRESOS'}
-                selected={cat}
-                onSelect={(id) => setCat(id === cat ? undefined : id)}
+                centerLabel={donutKind === 'todo' ? 'BALANCE' : donutKind === 'gasto' ? 'GASTOS' : 'INGRESOS'}
+                centerValue={
+                  donutKind === 'todo' ? (
+                    <span className={balance >= 0 ? 'text-good' : 'text-bad'}>{money(balance, { sign: true })}</span>
+                  ) : (
+                    money(donutTotal)
+                  )
+                }
+                selected={donutKind === 'todo' ? (type === 'pago_deuda' ? 'k:pago_deuda' : undefined) : cat}
+                onSelect={onSegment}
               />
             </motion.div>
           </AnimatePresence>
           <div className="flex flex-1 flex-col gap-1 text-sm">
-            <Stat label="Ingresos" value={summary.inc} color="text-good" active={donutKind === 'ingreso'} onClick={() => switchDonut('ingreso')} />
-            <Stat label="Gastos" value={summary.exp} color="text-bad" active={donutKind === 'gasto'} onClick={() => switchDonut('gasto')} />
-            <Stat label="Pagos de deuda" value={summary.debt} color="text-warn" />
-            <p className="px-2 text-[11px] text-muted">Toca Ingresos o Gastos para cambiar la dona</p>
+            <Stat label="Ingresos" value={summary.inc} color="text-good" active={donutKind === 'ingreso'} onClick={() => showKind('ingreso')} />
+            <Stat label="Gastos" value={summary.exp} color="text-bad" active={donutKind === 'gasto'} onClick={() => showKind('gasto')} />
+            <Stat
+              label="Pagos de deuda"
+              value={summary.debt}
+              color="text-warn"
+              active={type === 'pago_deuda'}
+              onClick={() => onSegment('k:pago_deuda')}
+            />
           </div>
         </div>
 
@@ -173,14 +234,14 @@ export function Movements() {
                 whileTap={{ scale: 0.92 }}
                 onClick={(e) => {
                   e.stopPropagation()
-                  setCat(s.id === cat ? undefined : s.id)
+                  onSegment(s.id)
                 }}
                 className={`flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold transition-opacity ${
                   cat && cat !== s.id ? 'opacity-40' : ''
                 }`}
-                style={{ background: s.cat.color + '33' }}
+                style={{ background: s.color + '33' }}
               >
-                {s.cat.emoji} {s.cat.name} <span className="text-muted">{pct(s.value, donutTotal)}</span>
+                {s.emoji} {s.name} <span className="text-muted">{pct(s.value, donutTotal)}</span>
               </motion.button>
             ))}
           </div>
@@ -205,6 +266,7 @@ export function Movements() {
             ['gasto', 'Gastos'],
             ['ingreso', 'Ingresos'],
             ['transferencia', 'Transferencias'],
+            ['pago_deuda', 'Pagos de deuda'],
           ] as const
         ).map(([id, label]) => (
           <Chip key={id} active={type === id} onClick={() => setType(id)}>
@@ -329,13 +391,15 @@ function Stat({
 function Donut({
   segments,
   total,
-  label,
+  centerLabel,
+  centerValue,
   selected,
   onSelect,
 }: {
-  segments: { id: string; value: number; cat: (typeof CATEGORIES)[number] }[]
+  segments: Seg[]
   total: number
-  label: string
+  centerLabel: string
+  centerValue: React.ReactNode
   selected?: string
   onSelect: (id: string) => void
 }) {
@@ -358,7 +422,7 @@ function Donut({
               cy={size / 2}
               r={r}
               fill="none"
-              stroke={s.cat.color}
+              stroke={s.color}
               strokeWidth={stroke}
               strokeDasharray={`${Math.max(len - gap, 0.1)} ${c}`}
               strokeDashoffset={-acc}
@@ -376,13 +440,13 @@ function Donut({
         })}
       </svg>
       <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
-        {selected ? (
-          <span className="text-2xl">{catById(selected)?.emoji}</span>
+        {selected && segments.some((s) => s.id === selected) ? (
+          <span className="text-2xl">{segments.find((s) => s.id === selected)?.emoji}</span>
         ) : (
           <span className="text-[10px] font-bold text-muted">
-            {label}
+            {centerLabel}
             <br />
-            <span className="text-xs text-ink">{money(total)}</span>
+            <span className="text-xs text-ink">{centerValue}</span>
           </span>
         )}
       </div>

@@ -1,5 +1,5 @@
-import type { Account, MonthlyItem, Transaction } from './db'
-import { addDays, todayStr } from './format'
+import type { Account, Debt, MonthlyItem, Profile, Transaction } from './db'
+import { addDays, parseDate, todayStr } from './format'
 
 /** Convierte un monto de una cuenta a la moneda principal. Devuelve 0 si falta la tasa. */
 export type ToMain = (amount: number, accountId: string) => number
@@ -139,4 +139,119 @@ export function levelFromXp(xp: number) {
 export function suggestedDailyLimit(income?: number, debts = 0, savingsPct = 0, fixed = 0) {
   if (!income) return undefined
   return Math.floor((income - debts - fixed - (income * savingsPct) / 100) / 30)
+}
+
+/**
+ * Cuotas mensuales de deudas en moneda principal: deudas registradas activas + cuotas del onboarding
+ * aún sin completar (igual que el límite sugerido en Perfil).
+ */
+export function monthlyDebtTotal(
+  profile: Pick<Profile, 'debtItems' | 'monthlyDebtPayments'>,
+  debts: Debt[],
+  convert: (amount: number, code: string) => number,
+) {
+  const registered = debts.filter((d) => d.balance > 0).reduce((s, d) => s + convert(d.monthlyPayment, d.currency), 0)
+  return registered + (profile.debtItems ? sumItems(profile.debtItems) : (profile.monthlyDebtPayments ?? 0))
+}
+
+export type MonthStatus = 'verde' | 'amarillo' | 'rojo'
+
+export interface MonthBalance {
+  /** Ingreso mensual declarado */
+  income: number
+  /** Gastos fijos presupuestados */
+  fixed: number
+  /** Cuotas de deudas presupuestadas */
+  debts: number
+  /** Ahorro (savingsPct del ingreso) */
+  saving: number
+  /** Para el día a día este mes = ingreso − fijos − cuotas − ahorro (misma base que el límite sugerido) */
+  budget: number
+  /** Gastos del mes sin las categorías de gastos fijos */
+  variableSpent: number
+  /** Gastos del mes en categorías de gastos fijos */
+  fixedSpent: number
+  /** Pagos a deudas hechos este mes */
+  debtPaid: number
+  /** Ingresos registrados este mes */
+  incomeReceived: number
+  /** budget − variableSpent (negativo = te pasaste) */
+  remaining: number
+  daysInMonth: number
+  /** Día del mes de hoy (1…31) */
+  day: number
+  /** Días que quedan contando hoy */
+  daysLeft: number
+  /** Lo que "tocaría" llevar gastado al terminar hoy si repartes el presupuesto parejo */
+  expectedByToday: number
+  /** Lo que puedes gastar por día el resto del mes (0 si ya no queda) */
+  perDayLeft: number
+  status: MonthStatus
+}
+
+/**
+ * Balance del mes calendario (del 1 al último día). Todo en moneda principal.
+ * verde = vas igual o por debajo del ritmo; amarillo = vas más rápido que el ritmo pero aún te queda;
+ * rojo = el gasto del día a día ya superó lo presupuestado para el mes.
+ * Nota: `profile.payday` podría usarse para medir de quincena/pago a pago; por ahora usamos el mes calendario.
+ * Devuelve undefined si no hay ingreso mensual.
+ */
+export function monthBalance(p: {
+  profile: Pick<Profile, 'monthlyIncome' | 'fixedExpenses' | 'debtItems' | 'monthlyDebtPayments' | 'savingsPct'>
+  debts: Debt[]
+  txs: Transaction[]
+  toMain: ToMain
+  convert: (amount: number, code: string) => number
+  today?: string
+}): MonthBalance | undefined {
+  const { profile, txs, toMain } = p
+  const income = profile.monthlyIncome
+  if (!income) return undefined
+  const today = p.today ?? todayStr()
+  const fixed = sumItems(profile.fixedExpenses)
+  const debts = monthlyDebtTotal(profile, p.debts, p.convert)
+  const saving = (income * (profile.savingsPct ?? 0)) / 100
+  const budget = income - fixed - debts - saving
+
+  const key = today.slice(0, 7)
+  const fixedCats = fixedCategories(profile.fixedExpenses)
+  let variableSpent = 0
+  let fixedSpent = 0
+  let debtPaid = 0
+  let incomeReceived = 0
+  for (const t of txs) {
+    if (!t.date.startsWith(key) || t.date > today) continue
+    const v = toMain(t.amount, t.accountId)
+    if (t.type === 'gasto') {
+      if (t.categoryId && fixedCats.has(t.categoryId)) fixedSpent += v
+      else variableSpent += v
+    } else if (t.type === 'pago_deuda') debtPaid += v
+    else if (t.type === 'ingreso') incomeReceived += v
+  }
+
+  const d = parseDate(today)
+  const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+  const day = d.getDate()
+  const daysLeft = daysInMonth - day + 1
+  const remaining = budget - variableSpent
+  const expectedByToday = Math.max(0, budget) * (day / daysInMonth)
+  const status: MonthStatus = remaining < 0 ? 'rojo' : variableSpent > expectedByToday + 0.005 ? 'amarillo' : 'verde'
+  return {
+    income,
+    fixed,
+    debts,
+    saving,
+    budget,
+    variableSpent,
+    fixedSpent,
+    debtPaid,
+    incomeReceived,
+    remaining,
+    daysInMonth,
+    day,
+    daysLeft,
+    expectedByToday,
+    perDayLeft: remaining > 0 ? Math.floor(remaining / daysLeft) : 0,
+    status,
+  }
 }

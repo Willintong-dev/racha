@@ -11,6 +11,7 @@ import { AnimatedMoney, Avatar, Empty, Page, Ring, XpBar } from '../components/u
 import { TxRow } from '../components/TxRow'
 import { useQuickAdd } from '../components/QuickAdd'
 import { StreakSheet } from '../components/StreakSheet'
+import { MonthCard } from '../components/MonthCard'
 
 export function Home() {
   const { profile, accounts, txs, balances, toMain, fixedCats } = useData()
@@ -77,6 +78,9 @@ export function Home() {
           <ChevronRight className="text-muted" />
         </motion.button>
       )}
+
+      {/* Balance del mes: presupuesto del día a día vs lo gastado */}
+      <MonthCard />
 
       <UpcomingPayments />
 

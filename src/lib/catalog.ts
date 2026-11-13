@@ -131,3 +131,20 @@ export const AVATARS = [
   { emoji: '🐧', from: '#0ea5e9', to: '#818cf8' },
   { emoji: '🦄', from: '#ec4899', to: '#a78bfa' },
 ]
+
+// ---------------------------------------------------------------------------
+// Búsquedas seguras con datos que vienen de afuera (nube, ranking de otros jugadores)
+// ---------------------------------------------------------------------------
+
+/**
+ * ¿`key` es una clave PROPIA de `obj`? Evita que ids como "__proto__", "constructor" o "toString"
+ * lleguen a Object.prototype al buscar en un catálogo (`MAPA[id]`).
+ */
+export const hasOwn = (obj: object, key: unknown): key is string =>
+  typeof key === 'string' && Object.prototype.hasOwnProperty.call(obj, key)
+
+/** Índice de avatar válido: entero dentro del catálogo; cualquier otra cosa cae en el primero. */
+export const avatarIndex = (i: unknown): number => (typeof i === 'number' && Number.isInteger(i) && i >= 0 && i < AVATARS.length ? i : 0)
+
+/** Tipo de cuenta conocido; uno desconocido (p. ej. llegado de la nube) se muestra como "Banco". */
+export const accountTypeOf = (type: unknown) => ACCOUNT_TYPES[hasOwn(ACCOUNT_TYPES, type) ? (type as AccountType) : 'banco']

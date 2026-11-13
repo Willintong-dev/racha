@@ -150,6 +150,9 @@ export async function pullRemote(db: RachaDB, remote: Remote, userId: string) {
     for (const d of docs) {
       if (!max || Date.parse(d.updated_at) > Date.parse(max)) max = d.updated_at
       if (pending.has(docKey(d.kind, d.id))) continue
+      // Documento malformado (tipo desconocido o datos que no son un objeto): se ignora en vez de romper la sincronización
+      if (!Object.prototype.hasOwnProperty.call(TABLE_OF, d.kind) || typeof d.id !== 'string') continue
+      if (!d.deleted && (!d.data || typeof d.data !== 'object' || Array.isArray(d.data))) continue
       const table = db.table(TABLE_OF[d.kind])
       const local = await table.get(d.id)
       if (d.deleted) {

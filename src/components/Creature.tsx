@@ -332,7 +332,7 @@ function capGeometry(s: Species) {
 
 /** Personaje completo (como <g>, dentro de un <svg> con viewBox que contenga 0 0 120 120). */
 export function Character({ species, hat, happy = 0, still }: { species: number; hat?: string; happy?: number; still?: boolean }) {
-  const s = SPECIES[species] ?? SPECIES[0]
+  const s = (Number.isInteger(species) && SPECIES[species]) || SPECIES[0]
   const [lx, ly, rx, ry] = s.eyes
   const h = s.head
   // Gafas, moño y corona (abierta) dejan ver cuerno y melena; los demás sombreros los tapan
@@ -690,7 +690,8 @@ function Hat({ id, s, part }: { id: string; s: Species; part?: 'brim' }) {
 // ---------------------------------------------------------------------------
 
 export function Pet({ id, still }: { id: string; still?: boolean }) {
-  const art = PETS[id]
+  // Solo claves propias: un id como "__proto__" o "constructor" no debe llegar a Object.prototype
+  const art = typeof id === 'string' && Object.prototype.hasOwnProperty.call(PETS, id) ? PETS[id] : null
   if (!art) return null
   return (
     <g className={`cr${still ? ' cr-still' : ''}`}>

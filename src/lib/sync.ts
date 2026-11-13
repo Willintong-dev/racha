@@ -4,7 +4,10 @@
  * - Cada escritura local de un usuario de Supabase queda en `db.outbox` (ver middleware en db.ts).
  * - Sincronizar = subir la cola (agrupada por documento) y luego bajar lo que cambió en el servidor
  *   desde la última vez (`updated_at` lo pone el servidor). Gana la última escritura.
- * - Lo bajado se aplica en una transacción marcada como "remota", así no vuelve a la cola.
+ * - Se baja en páginas de 500 ordenadas por (updated_at, kind, id), pidiendo cada página "después de la
+ *   última fila vista" (keyset, no OFFSET: si otro dispositivo edita algo a mitad de la bajada no se salta
+ *   nada). Cada página se aplica en su propia transacción marcada como "remota" (así no vuelve a la cola)
+ *   y en esa misma transacción se guarda dónde quedamos: si se corta, la siguiente vez sigue desde ahí.
  *
  * El motor habla con la nube a través de `Remote`, para poder probarlo con un servidor falso en memoria.
  */
@@ -19,45 +22,102 @@ export interface DocRow {
 }
 
 export interface RemoteDoc extends DocRow {
-  /** Hora del servidor de la última escritura (ISO) */
+  /** Hora del servidor de la última escritura (ISO, tal cual la devuelve el servidor: con microsegundos) */
   updated_at: string
+}
+
+/** Posición en el orden (updated_at, kind, id) de la nube. */
+export interface PullCursor {
+  ts: string
+  kind: string
+  id: string
 }
 
 export interface Remote {
   /** Sube (upsert) documentos. Lanza un error si falla. */
   push(userId: string, rows: DocRow[]): Promise<void>
-  /** Documentos con updated_at > since (todos si since es null), ordenados por updated_at. */
-  pull(userId: string, since: string | null): Promise<RemoteDoc[]>
+  /**
+   * Hasta `limit` documentos estrictamente después de `after` en el orden (updated_at, kind, id), en ese orden.
+   * `after` null = desde el principio. Con `kind` e `id` vacíos significa "updated_at >= after.ts"
+   * (comienzo de una bajada incremental). Lanza un error si falla.
+   */
+  pullPage(userId: string, after: PullCursor | null, limit: number): Promise<RemoteDoc[]>
+  /** Cuántos documentos tiene el usuario en total (solo para mostrar el %). Opcional. */
+  count?(userId: string): Promise<number>
+  /** ¿La nube tiene un perfil (no borrado) de este usuario? Lanza si no se pudo preguntar. */
+  hasProfile(userId: string): Promise<boolean>
 }
 
-const PAGE = 500
+export const PULL_PAGE = 500
 /** Al bajar repasamos unos segundos antes de la última marca por si una escritura tardó en confirmarse. */
 const OVERLAP_MS = 5000
+/** Una petición de lectura que no responde en este tiempo se cancela: la bajada falla y el motor reintenta. */
+const READ_TIMEOUT_MS = 30_000
+
+/**
+ * Valor entre comillas para los filtros `or=(…)` de PostgREST: así las comas, puntos, dos puntos y
+ * paréntesis del valor (p. ej. `2026-01-01T00:00:00.123456+00:00`) no se confunden con la sintaxis.
+ * Dentro de las comillas, `\` y `"` se escapan con `\`. (El `+` lo codifica luego URLSearchParams como %2B.)
+ */
+export function pgQuote(v: string) {
+  return `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
+/** Filtro `or` de PostgREST equivalente a (updated_at, kind, id) > cursor (PostgREST no compara tuplas). */
+export function keysetFilter(c: PullCursor) {
+  const t = pgQuote(c.ts)
+  const k = pgQuote(c.kind)
+  const i = pgQuote(c.id)
+  return `updated_at.gt.${t},and(updated_at.eq.${t},kind.gt.${k}),and(updated_at.eq.${t},kind.eq.${k},id.gt.${i})`
+}
+
+/** Corre una consulta cancelándola si tarda demasiado (una petición colgada no debe bloquear la bajada para siempre). */
+async function withTimeout<T>(run: (signal: AbortSignal) => PromiseLike<T>, ms = READ_TIMEOUT_MS): Promise<T> {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), ms)
+  try {
+    return await run(ctrl.signal)
+  } finally {
+    clearTimeout(t)
+  }
+}
 
 export function supabaseRemote(client: SupabaseClient): Remote {
   return {
     async push(userId, rows) {
-      for (let i = 0; i < rows.length; i += PAGE) {
-        const chunk = rows.slice(i, i + PAGE).map((r) => ({ user_id: userId, kind: r.kind, id: r.id, data: r.data, deleted: r.deleted }))
+      for (let i = 0; i < rows.length; i += PULL_PAGE) {
+        const chunk = rows.slice(i, i + PULL_PAGE).map((r) => ({ user_id: userId, kind: r.kind, id: r.id, data: r.data, deleted: r.deleted }))
         const { error } = await client.from('user_docs').upsert(chunk, { onConflict: 'user_id,kind,id' })
         if (error) throw new Error(error.message)
       }
     },
-    async pull(userId, since) {
-      const out: RemoteDoc[] = []
-      for (let from = 0; ; from += PAGE) {
-        let q = client.from('user_docs').select('kind,id,data,deleted,updated_at').eq('user_id', userId)
-        if (since) q = q.gt('updated_at', since)
-        const { data, error } = await q
-          .order('updated_at')
-          .order('kind')
-          .order('id')
-          .range(from, from + PAGE - 1)
-        if (error) throw new Error(error.message)
-        out.push(...((data ?? []) as RemoteDoc[]))
-        if (!data || data.length < PAGE) break
+    async pullPage(userId, after, limit) {
+      let q = client.from('user_docs').select('kind,id,data,deleted,updated_at').eq('user_id', userId)
+      if (after) {
+        // El `gte` es redundante con el `or`, pero deja que Postgres recorra el índice (user_id, updated_at)
+        // desde el cursor en vez de revisar todas las filas del usuario en cada página.
+        q = q.gte('updated_at', after.ts)
+        if (after.kind || after.id) q = q.or(keysetFilter(after))
       }
-      return out
+      const { data, error } = await withTimeout((signal) => q.order('updated_at').order('kind').order('id').limit(limit).abortSignal(signal))
+      if (error) throw new Error(error.message)
+      return (data ?? []) as RemoteDoc[]
+    },
+    // Sin reintentos y con poco tiempo: el conteo solo sirve para el %, no debe demorar la bajada si falla
+    async count(userId) {
+      const { count, error } = await withTimeout((signal) =>
+        client.from('user_docs').select('id', { count: 'exact', head: true }).eq('user_id', userId).retry(false).abortSignal(signal),
+        10_000,
+      )
+      if (error || typeof count !== 'number') throw new Error(error?.message ?? 'sin conteo')
+      return count
+    },
+    async hasProfile(userId) {
+      const { data, error } = await withTimeout((signal) =>
+        client.from('user_docs').select('id').eq('user_id', userId).eq('kind', 'profile').eq('deleted', false).limit(1).abortSignal(signal),
+      )
+      if (error) throw new Error(error.message)
+      return !!data?.length
     },
   }
 }
@@ -67,10 +127,24 @@ export function supabaseRemote(client: SupabaseClient): Remote {
 // ---------------------------------------------------------------------------
 
 const K = {
+  /** updated_at más alto de la última bajada COMPLETA (la siguiente empieza un poco antes) */
   pulled: (u: string) => `pulled:${u}`,
+  /** Hora (del dispositivo) en que se encoló por primera vez lo que ya había (= primer intento de sincronizar) */
   seeded: (u: string) => `seeded:${u}`,
   lastSync: (u: string) => `lastSync:${u}`,
   imported: (u: string) => `import:${u}`,
+  /** Bajada a medias: cursor de la última página aplicada. Se borra al terminar. */
+  pullCursor: (u: string) => `pullCursor:${u}`,
+  /** Terminó al menos una bajada completa en este dispositivo (aunque la nube estuviera vacía) */
+  pulledOnce: (u: string) => `pulledOnce:${u}`,
+}
+
+/** Punto de control de una bajada a medias */
+interface PullCheckpoint extends PullCursor {
+  /** updated_at más alto visto hasta ahora */
+  max?: string
+  /** Documentos recibidos hasta ahora en esta bajada (para el progreso) */
+  docs: number
 }
 
 async function getMeta<T>(db: RachaDB, key: string) {
@@ -78,6 +152,16 @@ async function getMeta<T>(db: RachaDB, key: string) {
 }
 
 export const getLastSyncAt = (db: RachaDB, userId: string) => getMeta<number>(db, K.lastSync(userId))
+
+/** ¿Este dispositivo ya terminó alguna vez una bajada completa de este usuario? */
+export async function hasCompletedPull(db: RachaDB, userId: string) {
+  return !!(await getMeta(db, K.pulled(userId))) || !!(await getMeta(db, K.pulledOnce(userId)))
+}
+
+/** ¿Hay una primera bajada que se cortó a la mitad (datos locales incompletos)? */
+export async function firstPullUnfinished(db: RachaDB, userId: string) {
+  return !!(await getMeta(db, K.pullCursor(userId))) && !(await hasCompletedPull(db, userId))
+}
 
 const docKey = (kind: string, id: string) => `${kind}\u0000${id}`
 
@@ -135,51 +219,151 @@ export async function pushOutbox(db: RachaDB, remote: Remote, userId: string) {
   return rows.length
 }
 
-/** Baja y aplica los cambios del servidor. Devuelve cuántos documentos cambiaron localmente. */
-export async function pullRemote(db: RachaDB, remote: Remote, userId: string) {
+export interface PullProgress {
+  /** Páginas recibidas en esta bajada */
+  pages: number
+  /** Documentos recibidos en esta bajada (incluye los de antes de un corte, si se retomó) */
+  docs: number
+  /** Total de documentos del usuario en la nube, si se pudo contar (solo en la primera bajada) */
+  total: number | null
+}
+
+export interface PullOpts {
+  onProgress?: (p: PullProgress) => void
+}
+
+export interface PullResult {
+  /** Documentos que cambiaron localmente */
+  applied: number
+  /** Documentos recibidos (incluye repetidos por el solape) */
+  docs: number
+  pages: number
+  /** Se descartó un perfil creado aquí sin conexión porque la nube ya tenía uno (ver abajo) */
+  replacedLocalProfile: boolean
+}
+
+const sameCursor = (a: PullCursor | null, b: PullCursor | null) => !!a && !!b && a.ts === b.ts && a.kind === b.kind && a.id === b.id
+
+/**
+ * Baja y aplica los cambios del servidor, página por página. Cada página se aplica y deja su punto de
+ * control en UNA transacción: si la bajada se corta, la próxima sigue desde la última página aplicada.
+ */
+export async function pullRemote(db: RachaDB, remote: Remote, userId: string, opts: PullOpts = {}): Promise<PullResult> {
   const last = await getMeta<string>(db, K.pulled(userId))
-  const since = last ? new Date(Date.parse(last) - OVERLAP_MS).toISOString() : null
-  const docs = await remote.pull(userId, since)
-  if (!docs.length) return 0
+  const completedBefore = await hasCompletedPull(db, userId)
+  const seededAt = await getMeta<number>(db, K.seeded(userId))
+  const resume = await getMeta<PullCheckpoint>(db, K.pullCursor(userId))
+
+  let after: PullCursor | null = resume
+    ? { ts: resume.ts, kind: resume.kind, id: resume.id }
+    : last
+      ? // Incremental: desde un poco antes de la última marca (lo repetido se reconoce y no cambia nada)
+        { ts: new Date(Date.parse(last) - OVERLAP_MS).toISOString(), kind: '', id: '' }
+      : null
+  let max = resume ? resume.max : last
+  let docsSeen = resume?.docs ?? 0
+  let pages = 0
   let applied = 0
-  await db.transaction('rw', [...syncTables(db), db.outbox, db.meta], async (tx) => {
-    markRemote(tx.idbtrans)
-    // Un cambio local que aún no se sube es más nuevo que lo del servidor: se respeta y se subirá después
-    const pending = new Set((await db.outbox.where('userId').equals(userId).toArray()).map((e) => docKey(e.kind, e.id)))
-    let max = last
-    for (const d of docs) {
-      if (!max || Date.parse(d.updated_at) > Date.parse(max)) max = d.updated_at
-      if (pending.has(docKey(d.kind, d.id))) continue
-      // Documento malformado (tipo desconocido o datos que no son un objeto): se ignora en vez de romper la sincronización
-      if (!Object.prototype.hasOwnProperty.call(TABLE_OF, d.kind) || typeof d.id !== 'string') continue
-      if (!d.deleted && (!d.data || typeof d.data !== 'object' || Array.isArray(d.data))) continue
-      const table = db.table(TABLE_OF[d.kind])
-      const local = await table.get(d.id)
-      if (d.deleted) {
-        if (local) {
-          await table.delete(d.id)
-          applied++
-        }
-        continue
-      }
-      const data = d.kind === 'profile' ? { ...d.data, userId } : { ...d.data, id: d.id, userId }
-      if (local && stable(local) === stable(data)) continue
-      await table.put(data)
-      applied++
+  let replacedLocalProfile = false
+
+  // En la primera bajada contamos cuántos documentos hay para mostrar el %. Si falla, no pasa nada.
+  let total: number | null = null
+  if (!completedBefore && remote.count) {
+    try {
+      total = await remote.count(userId)
+      opts.onProgress?.({ pages, docs: docsSeen, total })
+    } catch {
+      /* solo era para el % */
     }
-    if (max) await db.meta.put({ key: K.pulled(userId), value: max })
-  })
-  return applied
+  }
+
+  for (;;) {
+    const docs = await remote.pullPage(userId, after, PULL_PAGE)
+    const full = docs.length >= PULL_PAGE
+    const tail = docs[docs.length - 1]
+    const next: PullCursor | null = tail ? { ts: tail.updated_at, kind: tail.kind, id: tail.id } : after
+    // Defensa: una página llena que no avanza repetiría la misma página para siempre
+    if (full && (!tail || typeof tail.updated_at !== 'string' || sameCursor(next, after))) throw new Error('La nube devolvió una página que no avanza')
+
+    await db.transaction('rw', [...syncTables(db), db.outbox, db.meta], async (tx) => {
+      markRemote(tx.idbtrans)
+      // Un cambio local que aún no se sube es más nuevo que lo del servidor: se respeta y se subirá después
+      const pendingEntries = await db.outbox.where('userId').equals(userId).toArray()
+      const pending = new Set(pendingEntries.map((e) => docKey(e.kind, e.id)))
+      for (const d of docs) {
+        if (typeof d.updated_at === 'string' && (!max || Date.parse(d.updated_at) > Date.parse(max))) max = d.updated_at
+        // Documento malformado (tipo desconocido o datos que no son un objeto): se ignora en vez de romper la sincronización
+        if (!Object.prototype.hasOwnProperty.call(TABLE_OF, d.kind) || typeof d.id !== 'string') continue
+        if (!d.deleted && (!d.data || typeof d.data !== 'object' || Array.isArray(d.data))) continue
+        if (pending.has(docKey(d.kind, d.id))) {
+          // EXCEPCIÓN (estrecha a propósito): perfil creado en este dispositivo sin haber visto nunca la nube.
+          // Si este dispositivo nunca terminó una bajada y TODOS los cambios pendientes del perfil son
+          // posteriores a su primer intento de sincronizar (o sea, el perfil lo creó el onboarding aquí,
+          // p. ej. sin conexión), y la nube ya tiene un perfil, gana el de la nube: si no, subiríamos el
+          // perfil nuevo y reemplazaría el verdadero (XP, logros, tasas, categorías propias…).
+          // Un perfil que ya existía antes de sincronizar (encolado por seedOutbox) NO entra aquí.
+          const createdHereBlind =
+            d.kind === 'profile' &&
+            !d.deleted &&
+            !completedBefore &&
+            seededAt !== undefined &&
+            pendingEntries.filter((e) => e.kind === 'profile').every((e) => e.ts > seededAt)
+          if (!createdHereBlind) continue
+          await db.outbox
+            .where('userId')
+            .equals(userId)
+            .filter((e) => e.kind === 'profile')
+            .delete()
+          pending.delete(docKey(d.kind, d.id))
+          replacedLocalProfile = true
+          console.warn('[sync] La nube ya tenía un perfil: se descarta el perfil creado en este dispositivo antes de la primera sincronización')
+        }
+        const table = db.table(TABLE_OF[d.kind])
+        const local = await table.get(d.id)
+        if (d.deleted) {
+          if (local) {
+            await table.delete(d.id)
+            applied++
+          }
+          continue
+        }
+        const data = d.kind === 'profile' ? { ...d.data, userId } : { ...d.data, id: d.id, userId }
+        if (local && stable(local) === stable(data)) continue
+        await table.put(data)
+        applied++
+      }
+      if (full) {
+        const cp: PullCheckpoint = { ...next!, max, docs: docsSeen + docs.length }
+        await db.meta.put({ key: K.pullCursor(userId), value: cp })
+      } else {
+        if (max) await db.meta.put({ key: K.pulled(userId), value: max })
+        await db.meta.put({ key: K.pulledOnce(userId), value: Date.now() })
+        await db.meta.delete(K.pullCursor(userId))
+      }
+    })
+
+    pages++
+    docsSeen += docs.length
+    after = next
+    opts.onProgress?.({ pages, docs: docsSeen, total })
+    if (!full) break
+  }
+  return { applied, docs: docsSeen, pages, replacedLocalProfile }
 }
 
 /** Una vuelta completa: encolar lo viejo (una vez), subir, bajar. */
-export async function syncOnce(db: RachaDB, remote: Remote, userId: string) {
+export async function syncOnce(db: RachaDB, remote: Remote, userId: string, opts: PullOpts = {}) {
   await seedOutbox(db, userId)
-  const pushed = await pushOutbox(db, remote, userId)
-  const pulled = await pullRemote(db, remote, userId)
+  // Si este dispositivo nunca terminó una bajada, primero BAJAMOS y luego subimos: así lo que hay en la
+  // nube (p. ej. el perfil real) se ve antes de subir nada creado aquí a ciegas (ver la excepción en pullRemote).
+  const first = !(await hasCompletedPull(db, userId))
+  let pushed = first ? 0 : await pushOutbox(db, remote, userId)
+  const pull = await pullRemote(db, remote, userId, opts)
+  if (first) pushed = await pushOutbox(db, remote, userId)
   await db.meta.put({ key: K.lastSync(userId), value: Date.now() })
-  return { pushed, pulled }
+  return { pushed, pulled: pull.applied, replacedLocalProfile: pull.replacedLocalProfile }
 }
+
 
 // ---------------------------------------------------------------------------
 // Motor: cuándo sincronizar, reintentos y estado
@@ -190,6 +374,8 @@ export interface SyncState {
   status: SyncStatus
   lastSyncAt: number | null
   error?: string
+  /** Avance de la bajada en curso (undefined si no se está bajando) */
+  progress?: PullProgress
 }
 
 interface EngineOpts {
@@ -256,6 +442,19 @@ export class SyncEngine {
     return this.running
   }
 
+  /** ¿Hay una sincronización corriendo ahora? */
+  get busy() {
+    return this.running !== null
+  }
+
+  /**
+   * Pregunta a la nube si este usuario ya tiene perfil. Lanza si no se pudo preguntar
+   * (sin conexión, tabla inexistente…): en ese caso NO se sabe, y hay que tratarlo como "puede que sí".
+   */
+  cloudHasProfile() {
+    return this.remote.hasProfile(this.userId)
+  }
+
   /** Sincroniza dentro de un rato (por defecto ~2 s), agrupando cambios seguidos */
   schedule(ms = this.opts.debounceMs ?? 2000) {
     if (this.stopped) return
@@ -268,18 +467,18 @@ export class SyncEngine {
       this.set({ status: 'offline' })
       return false
     }
-    this.set({ status: 'syncing', error: undefined })
+    this.set({ status: 'syncing', error: undefined, progress: undefined })
     try {
-      await syncOnce(this.db, this.remote, this.userId)
+      await syncOnce(this.db, this.remote, this.userId, { onProgress: (progress) => this.set({ progress }) })
       this.attempt = 0
-      this.set({ status: 'idle', lastSyncAt: Date.now() })
+      this.set({ status: 'idle', lastSyncAt: Date.now(), progress: undefined })
       return true
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       if (!this.online()) {
-        this.set({ status: 'offline', error: msg })
+        this.set({ status: 'offline', error: msg, progress: undefined })
       } else {
-        this.set({ status: 'error', error: msg })
+        this.set({ status: 'error', error: msg, progress: undefined })
         // Reintento con espera creciente: 2 s, 4 s, 8 s… hasta 1 min
         const wait = Math.min(60_000, 2000 * 2 ** this.attempt++)
         clearTimeout(this.retry)

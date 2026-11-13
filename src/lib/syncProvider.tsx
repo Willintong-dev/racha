@@ -3,7 +3,17 @@ import { motion } from 'framer-motion'
 import { useAuth } from './auth'
 import { db } from './db'
 import { supabase } from './supabase'
-import { findImportCandidate, importLocalData, skipImport, SyncEngine, supabaseRemote, type ImportCandidate, type SyncState } from './sync'
+import {
+  findImportCandidate,
+  firstPullUnfinished,
+  importLocalData,
+  skipImport,
+  SyncEngine,
+  supabaseRemote,
+  type ImportCandidate,
+  type PullProgress,
+  type SyncState,
+} from './sync'
 import { Splash } from '../screens/Splash'
 import { BigButton } from '../components/ui'
 
@@ -18,14 +28,20 @@ export function useSync() {
   return useContext(Ctx)
 }
 
-/** Si la primera bajada tarda más que esto (p. ej. sin internet), seguimos sin esperarla. */
-const INITIAL_PULL_TIMEOUT = 8000
+/**
+ * Primera bajada: si pasa este tiempo sin que llegue NINGUNA página (ni el conteo), mostramos la pantalla
+ * de "no pudimos traer tus datos" (la bajada sigue por detrás y, si avanza, volvemos a "Descargando…").
+ * Con miles de documentos y un servidor lejano cada página tarda 1–2 s: lo que cuenta es que avance.
+ */
+const STALL_MS = 15_000
 /** Al reintentar a mano, mínimo de tiempo mostrando "Conectando…" */
 const RETRY_MIN_MS = 700
 
 type Gate =
   | { uid: string; phase: 'ready' }
-  | { uid: string; phase: 'offline' }
+  | { uid: string; phase: 'loading' }
+  /** canStartFresh: la nube CONFIRMÓ que no hay perfil de este usuario (solo así se ofrece "Empezar de cero") */
+  | { uid: string; phase: 'offline'; canStartFresh: boolean }
   | { uid: string; phase: 'import'; candidate: ImportCandidate }
 
 /**
@@ -39,6 +55,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SyncState>({ status: 'idle', lastSyncAt: null })
   const engine = useRef<SyncEngine | null>(null)
   const retryPull = useRef<(() => void) | null>(null)
+  /** Hay un intento de bajada en curso (en la pantalla sin conexión: botón "Conectando…") */
   const [pulling, setPulling] = useState(false)
 
   useEffect(() => {
@@ -50,25 +67,54 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     const unsub = eng.subscribe(setState)
     let cancelled = false
 
-    // Dispositivo sin perfil: antes de dejar pasar, hay que confirmar con la nube si ya tiene los datos.
-    // Si no se pudo confirmar (error, sin internet o tardó demasiado) NO mandamos al onboarding:
-    // un perfil nuevo creado aquí pisaría el de la nube.
+    // Dispositivo sin perfil: antes de dejar pasar, hay que bajar lo que tenga la nube.
+    // Mientras la bajada avance mostramos "Descargando tus datos…". Solo si FALLA o no avanza en STALL_MS
+    // mostramos "No pudimos traer tus datos". NUNCA mandamos al onboarding sin haber confirmado con la nube
+    // que no hay perfil: un perfil nuevo creado aquí pisaría el de la nube.
     let waiting = false // mostrando la pantalla de "no pudimos traer tus datos"
-    let pulling = false
-    const showOffline = () => {
+    let inFlight = false // la primera bajada está corriendo
+    let lastProgressAt = 0
+    let lastProgress: PullProgress | undefined
+
+    const showOffline = async (askCloud: boolean) => {
       waiting = true
-      setGate({ uid, phase: 'offline' })
-    }
-    const initialPull = async (minMs = 0) => {
-      if (pulling || cancelled) return
-      pulling = true
-      setPulling(true)
+      setPulling(false)
+      setGate({ uid, phase: 'offline', canStartFresh: false })
+      if (!askCloud) return
+      // "Empezar de cero" solo si la nube responde y CONFIRMA que no hay perfil. Si no se pudo preguntar, no se ofrece.
       try {
-        const pull = Promise.race([eng.syncNow(), new Promise<false>((r) => setTimeout(() => r(false), INITIAL_PULL_TIMEOUT))])
+        const has = await eng.cloudHasProfile()
+        if (cancelled || has || inFlight || !waiting) return
+        setGate((g) => (g && g.uid === uid && g.phase === 'offline' ? { ...g, canStartFresh: true } : g))
+      } catch {
+        /* no se sabe si hay perfil: solo Reintentar */
+      }
+    }
+
+    const initialPull = async (minMs = 0) => {
+      if (inFlight || cancelled) return
+      inFlight = true
+      lastProgressAt = Date.now()
+      setPulling(true)
+      if (!waiting) setGate({ uid, phase: 'loading' })
+      const stall = setInterval(() => {
+        if (!cancelled && inFlight && !waiting && Date.now() - lastProgressAt > STALL_MS) void showOffline(false)
+      }, 500)
+      let ok = false
+      try {
         // Al reintentar a mano, que se alcance a ver el estado de carga aunque falle al instante
-        const [ok] = await Promise.all([pull, new Promise((r) => setTimeout(r, minMs))])
-        if (cancelled) return
-        if (!ok) return showOffline()
+        const [res] = await Promise.all([eng.syncNow(), new Promise((r) => setTimeout(r, minMs))])
+        ok = res
+      } catch {
+        ok = false
+      } finally {
+        clearInterval(stall)
+        inFlight = false
+        if (!cancelled) setPulling(false)
+      }
+      if (cancelled) return
+      if (!ok) return void showOffline(true)
+      try {
         waiting = false
         // Solo ofrecemos importar si confirmamos que la nube no tiene perfil
         if (!(await db.profiles.get(uid))) {
@@ -81,24 +127,48 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         }
         if (!cancelled) setGate({ uid, phase: 'ready' })
       } catch {
-        if (!cancelled) showOffline()
-      } finally {
-        pulling = false
-        if (!cancelled) setPulling(false)
+        if (!cancelled) void showOffline(false)
       }
     }
-    retryPull.current = () => void initialPull(RETRY_MIN_MS)
+    retryPull.current = () => {
+      if (inFlight) {
+        // La bajada sigue viva pero sin avanzar: le damos otra ventana
+        waiting = false
+        lastProgressAt = Date.now()
+        setPulling(true)
+        setGate({ uid, phase: 'loading' })
+        return
+      }
+      void initialPull(RETRY_MIN_MS)
+    }
     // Mientras esperamos: reintentar al volver internet, o si el reintento automático del motor salió bien
     const onOnline = () => {
-      if (waiting) void initialPull()
+      if (waiting) retryPull.current?.()
     }
     window.addEventListener('online', onOnline)
     const unsubWait = eng.subscribe((s) => {
-      if (waiting && !pulling && s.status === 'idle' && s.lastSyncAt) void initialPull()
+      const fresh = !!s.progress && s.progress !== lastProgress
+      if (fresh) {
+        // Llegó una página (o el conteo): la nube responde
+        lastProgress = s.progress
+        lastProgressAt = Date.now()
+      }
+      if (inFlight) {
+        if (fresh && waiting) {
+          waiting = false
+          setGate({ uid, phase: 'loading' })
+        }
+      } else if (waiting && ((fresh && s.progress!.pages > 0) || (s.status === 'idle' && s.lastSyncAt))) {
+        // El reintento automático del motor ya está recibiendo páginas (o terminó): lo seguimos con "Descargando…"
+        waiting = false
+        void initialPull()
+      }
     })
 
     ;(async () => {
-      const hadProfile = await db.profiles.get(uid)
+      // Con perfil local entramos directo y sincronizamos por detrás… salvo que la primera bajada
+      // haya quedado a medias (el perfil llegó pero faltan datos): entonces la terminamos primero.
+      const hadProfile = !!(await db.profiles.get(uid)) && !(await firstPullUnfinished(db, uid))
       await eng.start()
       if (cancelled) return
       if (hadProfile) {
@@ -108,7 +178,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       }
       await initialPull()
     })().catch(() => {
-      if (!cancelled) showOffline()
+      if (!cancelled) void showOffline(false)
     })
 
     return () => {
@@ -125,8 +195,16 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   if (!uid) return <>{children}</>
   if (!gate || gate.uid !== uid) return <Splash />
+  if (gate.phase === 'loading') return <PullScreen progress={state.progress} />
   if (gate.phase === 'offline') {
-    return <OfflinePrompt retrying={pulling} onRetry={() => retryPull.current?.()} onStartFresh={() => setGate({ uid, phase: 'ready' })} />
+    return (
+      <OfflinePrompt
+        retrying={pulling}
+        canStartFresh={gate.canStartFresh && !pulling}
+        onRetry={() => retryPull.current?.()}
+        onStartFresh={() => setGate({ uid, phase: 'ready' })}
+      />
+    )
   }
   if (gate.phase === 'import') {
     return (
@@ -189,7 +267,56 @@ function ImportPrompt({ candidate, onImport, onSkip }: { candidate: ImportCandid
   )
 }
 
-function OfflinePrompt({ retrying, onRetry, onStartFresh }: { retrying: boolean; onRetry: () => void; onStartFresh: () => void }) {
+const num = (n: number) => n.toLocaleString('es')
+
+/** Primera bajada en curso: "Descargando tus datos…" con el avance. */
+function PullScreen({ progress }: { progress?: PullProgress }) {
+  const docs = progress?.docs ?? 0
+  const total = progress?.total ?? null
+  const pct = total ? Math.min(100, Math.round((docs / total) * 100)) : null
+  return (
+    <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-[calc(env(safe-area-inset-bottom)+24px)]">
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="text-center">
+        <motion.div className="text-7xl" animate={{ y: [0, -6, 0] }} transition={{ repeat: Infinity, duration: 1.4 }}>
+          ☁️
+        </motion.div>
+        <h1 className="mt-6 text-2xl font-black">{progress ? 'Descargando tus datos…' : 'Conectando con la nube…'}</h1>
+        <p className="mt-3 text-muted" aria-live="polite">
+          {total !== null
+            ? `${num(Math.min(docs, total))} de ${num(total)} registros${pct !== null ? ` (${pct} %)` : ''}`
+            : docs > 0
+              ? `${num(docs)} registros recibidos`
+              : 'La primera vez puede tardar un poco.'}
+        </p>
+        {pct !== null && (
+          <div
+            className="mx-auto mt-5 h-2 w-full max-w-xs overflow-hidden rounded-full bg-card"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={pct}
+          >
+            <div className="grad h-full rounded-full transition-all" style={{ width: `${pct}%` }} />
+          </div>
+        )}
+        <p className="mt-4 text-xs text-muted">Si se corta, la próxima vez sigue desde donde iba.</p>
+      </motion.div>
+    </div>
+  )
+}
+
+function OfflinePrompt({
+  retrying,
+  canStartFresh,
+  onRetry,
+  onStartFresh,
+}: {
+  retrying: boolean
+  /** Solo true si la nube confirmó que no hay perfil de este usuario */
+  canStartFresh: boolean
+  onRetry: () => void
+  onStartFresh: () => void
+}) {
   const [confirming, setConfirming] = useState(false)
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 pt-[calc(env(safe-area-inset-top)+24px)] pb-[calc(env(safe-area-inset-bottom)+24px)]">
@@ -202,10 +329,12 @@ function OfflinePrompt({ retrying, onRetry, onStartFresh }: { retrying: boolean;
         <BigButton onClick={onRetry} disabled={retrying}>
           {retrying ? 'Conectando…' : 'Reintentar'}
         </BigButton>
-        {confirming ? (
+        {/* "Empezar de cero" solo aparece si la nube confirmó que no hay perfil: si no se sabe, podría pisar tus datos */}
+        {!canStartFresh ? null : confirming ? (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-3xl bg-card p-4 text-center text-sm">
             <p className="text-muted">
-              Si ya tienes datos en otro dispositivo, empezar de cero aquí puede <b className="text-ink">reemplazarlos</b> en todos tus dispositivos.
+              La nube no tiene datos tuyos. Si usas Racha en otro dispositivo que aún no ha subido sus datos, empezar de cero aquí puede{' '}
+              <b className="text-ink">reemplazarlos</b>.
             </p>
             <div className="mt-3 flex flex-col gap-2">
               <BigButton variant="danger" onClick={onStartFresh} disabled={retrying}>

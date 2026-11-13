@@ -3,9 +3,9 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { ChevronRight, Plus } from 'lucide-react'
 import { useData } from '../lib/data'
-import { db, type Debt, type MonthlyItem } from '../lib/db'
+import { type Debt, type MonthlyItem } from '../lib/db'
+import { removeDebtItem } from '../lib/actions'
 import { attackOrder, dueInfo, dueLabel, durationLabel, monthsFromNow, simulate, toSimDebts } from '../lib/debts'
-import { sumItems } from '../lib/finance'
 import { money } from '../lib/format'
 import { AnimatedMoney, Empty, Page, Sheet } from '../components/ui'
 import { DebtWizard, type DebtSeed } from '../components/DebtWizard'
@@ -43,10 +43,7 @@ export function Debts() {
     return attackOrder(sd, plan.strategy)[0]?.id
   }, [plan, active, convert])
 
-  const removeItem = async (itemId: string) => {
-    const items = (profile.debtItems ?? []).filter((i) => i.id !== itemId)
-    await db.profiles.update(userId, { debtItems: items, monthlyDebtPayments: sumItems(items) })
-  }
+  const removeItem = (itemId: string) => removeDebtItem(userId, itemId)
 
   return (
     <Page>

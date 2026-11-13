@@ -4,13 +4,13 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, ChevronRight, LogOut } from 'lucide-react'
 import { useData } from '../lib/data'
 import { useAuth } from '../lib/auth'
-import { db, type MonthlyItem, type Profile as ProfileT } from '../lib/db'
+import { db, type CustomCategory, type MonthlyItem, type Profile as ProfileT } from '../lib/db'
 import { DEBT_PRESETS, FIXED_PRESETS } from '../lib/catalog'
 import { ACHIEVEMENTS, FREEZE_MAX, freezesOf, isUnlocked, WARDROBE } from '../lib/game'
-import { suggestedDailyLimit, sumItems } from '../lib/finance'
+import { monthlyDebtTotal, suggestedDailyLimit, sumItems } from '../lib/finance'
 import { currencyInfo, currencySymbol, formatTyping, money, parseAmount } from '../lib/format'
 import { celebrate } from '../lib/celebrate'
-import { changeMainCurrency, setRate } from '../lib/actions'
+import { changeMainCurrency, saveCustomCategory, setRate } from '../lib/actions'
 import { Avatar, BigButton, Chip, NumPad, Page, Sheet, XpBar } from '../components/ui'
 import { RateInput, useRateSuggestion } from '../components/currency'
 import { rateLabel } from '../lib/fx'
@@ -114,6 +114,35 @@ export function Profile() {
       </AnimatePresence>
 
       <AnimatePresence>
+        {offerLimit && suggestedNow !== undefined && suggestedNow <= 0 && (
+          <motion.div
+            data-over-income
+            initial={{ opacity: 0, y: -10, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mt-6 rounded-3xl border border-bad/40 bg-bad/10 p-4"
+          >
+            <p className="font-bold text-bad">Tus pagos fijos ya superan tu ingreso</p>
+            <p className="text-sm text-muted">
+              Entre gastos fijos, cuotas de deudas y ahorro no te queda nada para el día a día. Revisa tus pagos o tu ingreso.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setOfferLimit(false)
+                  setItemsOpen('fixed')
+                }}
+                className="rounded-xl bg-bad px-4 py-2 font-extrabold text-white"
+              >
+                Revisar gastos fijos
+              </button>
+              <button type="button" onClick={() => setOfferLimit(false)} className="rounded-xl px-4 py-2 font-bold text-muted">
+                Entendido
+              </button>
+            </div>
+          </motion.div>
+        )}
         {offerLimit && suggestedNow !== undefined && suggestedNow > 0 && suggestedNow !== profile.dailyLimit && (
           <motion.div
             initial={{ opacity: 0, y: -10, height: 0 }}
@@ -270,9 +299,18 @@ function suggestedLimitFor(p: ProfileT, debtsMonthly: number) {
 }
 
 function ItemsEditor({ kind, onDone }: { kind: 'debts' | 'fixed'; onDone: () => void }) {
-  const { profile, userId } = useData()
+  const { profile, userId, debts, convert } = useData()
+  // Lo que pagas al mes fuera de esta lista: si editas gastos fijos, las cuotas; si editas cuotas, las deudas registradas + gastos fijos
+  const other =
+    kind === 'fixed'
+      ? monthlyDebtTotal(profile, debts, convert)
+      : monthlyDebtTotal({ debtItems: [] }, debts, convert) + sumItems(profile.fixedExpenses)
   const [items, setItems] = useState<MonthlyItem[]>((kind === 'debts' ? profile.debtItems : profile.fixedExpenses) ?? [])
+  // Categorías nacidas de un "Otro": se guardan al darle Guardar (si cancelas, no quedan huérfanas)
+  const [pending, setPending] = useState<CustomCategory[]>([])
   const save = async () => {
+    const used = new Set(items.map((i) => i.categoryId))
+    for (const c of pending) if (used.has(c.id)) await saveCustomCategory(userId, c)
     await db.profiles.update(
       userId,
       kind === 'debts' ? { debtItems: items, monthlyDebtPayments: sumItems(items) } : { fixedExpenses: items },
@@ -286,6 +324,18 @@ function ItemsEditor({ kind, onDone }: { kind: 'debts' | 'fixed'; onDone: () => 
         onChange={setItems}
         presets={kind === 'debts' ? DEBT_PRESETS : FIXED_PRESETS}
         question={kind === 'debts' ? '¿Cuánto pagas cada mes de' : '¿Cuánto pagas al mes de'}
+        impact={{
+          income: profile.monthlyIncome,
+          savingsPct: profile.savingsPct ?? 0,
+          other,
+          currentLimit: profile.dailyLimit,
+          noun: kind === 'fixed' ? 'este gasto' : 'esta cuota',
+        }}
+        categories={
+          kind === 'fixed'
+            ? { existing: [...(profile.customCategories ?? []), ...pending], onCreate: (c) => setPending((p) => [...p, c]) }
+            : undefined
+        }
         hint={
           kind === 'debts'
             ? 'Escribe el valor de la cuota mensual en dinero. El detalle completo de cada deuda llega en la pestaña Deudas (Fase 2).'

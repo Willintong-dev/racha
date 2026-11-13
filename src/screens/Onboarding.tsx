@@ -6,7 +6,7 @@ import { addXp, createAccount, XP } from '../lib/actions'
 import { celebrate } from '../lib/celebrate'
 import { AVATARS } from '../lib/catalog'
 import { DEBT_PRESETS, FIXED_PRESETS } from '../lib/catalog'
-import type { MonthlyItem } from '../lib/db'
+import type { CustomCategory, MonthlyItem } from '../lib/db'
 import { sumItems, suggestedDailyLimit } from '../lib/finance'
 import { MonthlyItems } from '../components/MonthlyItems'
 import { CURRENCY_LIST, currencySymbol, formatTyping, getMainCurrency, money, parseAmount, setMainCurrency } from '../lib/format'
@@ -42,6 +42,8 @@ export function Onboarding() {
   const [hasDebts, setHasDebts] = useState<boolean | null>(null)
   const [debtItems, setDebtItems] = useState<MonthlyItem[]>([])
   const [fixedItems, setFixedItems] = useState<MonthlyItem[]>([])
+  // Categorías creadas desde "Otro" en gastos fijos: el perfil aún no existe, se guardan con él al final
+  const [newCats, setNewCats] = useState<CustomCategory[]>([])
   const [savingsPct, setSavingsPct] = useState(10)
   const [limit, setLimit] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
@@ -76,6 +78,7 @@ export function Onboarding() {
       monthlyDebtPayments: hasDebts ? debtsN : undefined,
       debtItems: hasDebts ? debtItems : [],
       fixedExpenses: fixedItems,
+      customCategories: newCats.filter((c) => fixedItems.some((i) => i.categoryId === c.id)),
       savingsPct: incomeN ? savingsPct : undefined,
       dailyLimit: dailyLimit && dailyLimit > 0 ? dailyLimit : undefined,
       onboarded: true,
@@ -211,6 +214,7 @@ export function Onboarding() {
                     onChange={setDebtItems}
                     presets={DEBT_PRESETS}
                     question="¿Cuánto pagas cada mes de"
+                    impact={incomeN ? { income: incomeN, savingsPct, other: fixedN, noun: 'esta cuota' } : undefined}
                     hint="Toca cada deuda y escribe el valor de su cuota mensual en dinero (no el número de cuotas)."
                   />
                   <Bottom>
@@ -230,7 +234,9 @@ export function Onboarding() {
                 onChange={setFixedItems}
                 presets={FIXED_PRESETS}
                 question="¿Cuánto pagas al mes de"
-                hint="Puedes renombrarlos: toca “Netflix, Spotify…” y escribe “Netflix”. Si un pago no aparece, usa “Otro”."
+                impact={incomeN ? { income: incomeN, savingsPct, other: debtsN, noun: 'este gasto' } : undefined}
+                categories={{ existing: newCats, onCreate: (c) => setNewCats((l) => [...l, c]) }}
+                hint="Puedes renombrarlos: toca “Netflix, Spotify…” y escribe “Netflix”. Si un pago no aparece, usa “Otro” y ponle nombre e ícono."
               />
               <p className="mt-3 text-xs text-muted">
                 💡 Cuando registres un gasto de estas categorías, no se descuenta de tu límite diario: ya está presupuestado aquí.

@@ -141,6 +141,29 @@ export function suggestedDailyLimit(income?: number, debts = 0, savingsPct = 0, 
   return Math.floor((income - debts - fixed - (income * savingsPct) / 100) / 30)
 }
 
+/** Datos para mostrar en vivo cómo un pago mensual (gasto fijo o cuota) mueve tu presupuesto */
+export interface ImpactBase {
+  income?: number
+  savingsPct: number
+  /** Pagos mensuales fuera de la lista que se edita (p. ej. las cuotas, si editas gastos fijos) */
+  other: number
+  /** Límite diario actual (si no hay, se compara con el sugerido de hoy) */
+  currentLimit?: number
+}
+
+/**
+ * Impacto de cambiar el total de una lista de pagos mensuales de `before` a `after`.
+ * `budget` = lo que queda para el día a día en el mes; `over` > 0 cuando los pagos fijos + ahorro superan el ingreso.
+ */
+export function monthlyImpact(base: ImpactBase, before: number, after: number) {
+  const { income, savingsPct, other } = base
+  if (!income) return undefined
+  const from = base.currentLimit ?? suggestedDailyLimit(income, other + before, savingsPct)!
+  const to = suggestedDailyLimit(income, other + after, savingsPct)!
+  const budget = income - other - after - (income * savingsPct) / 100
+  return { from, to, budget, over: budget < 0 ? -budget : 0 }
+}
+
 /**
  * Cuotas mensuales de deudas en moneda principal: deudas registradas activas + cuotas del onboarding
  * aún sin completar (igual que el límite sugerido en Perfil).

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useData } from '../lib/data'
 import type { CustomCategory } from '../lib/db'
-import { categoriesFor, CUSTOM_COLORS, CUSTOM_EMOJI_GROUPS, CUSTOM_NAME_MAX, isOtros, otrosOf } from '../lib/catalog'
+import { categoriesFor, CUSTOM_COLORS, CUSTOM_NAME_MAX, isOtros, otrosOf } from '../lib/catalog'
 
 /** Ícono por defecto de una categoría nueva (neutro) */
 const DEFAULT_EMOJI = '🏷️'
@@ -10,6 +10,7 @@ import { uid } from '../lib/format'
 import { deleteCustomCategory, saveCustomCategory } from '../lib/actions'
 import { celebrate } from '../lib/celebrate'
 import { Chip } from './ui'
+import { EmojiGrid } from './EmojiGrid'
 
 type Kind = 'gasto' | 'ingreso'
 /** Panel abierto: crear una categoría desde "Otros" o editar una propia */
@@ -186,27 +187,7 @@ export function CategoryPicker({
                   className="min-w-0 flex-1 rounded-xl border border-line bg-card px-3 py-2 font-bold"
                 />
               </div>
-              <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
-                {CUSTOM_EMOJI_GROUPS.map((g) => (
-                  <div key={g.label}>
-                    <p className="mb-0.5 text-[10px] font-bold tracking-wider text-muted uppercase">{g.label}</p>
-                    <div className="grid grid-cols-8 gap-1">
-                      {g.emojis.map((e) => (
-                        <motion.button
-                          key={e}
-                          type="button"
-                          whileTap={{ scale: 0.8 }}
-                          onClick={() => setEmoji(e)}
-                          aria-label={`Ícono ${e}`}
-                          className={`grid aspect-square place-items-center rounded-xl text-xl ${emoji === e ? 'bg-accent/30 ring-2 ring-accent' : ''}`}
-                        >
-                          {e}
-                        </motion.button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <EmojiGrid value={emoji} onPick={setEmoji} />
               <div className="flex gap-2">
                 {panel.edit ? (
                   <button

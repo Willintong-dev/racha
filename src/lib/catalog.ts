@@ -69,6 +69,22 @@ export const CUSTOM_EMOJIS = CUSTOM_EMOJI_GROUPS.flatMap((g) => g.emojis)
 export const CUSTOM_COLORS = ['#f59e0b', '#8b5cf6', '#06b6d4', '#f43f5e', '#10b981', '#3b82f6', '#d946ef', '#84cc16', '#fb923c', '#0ea5e9']
 export const CUSTOM_NAME_MAX = 20
 
+/**
+ * Categoría de gasto para un gasto fijo inventado ("Otro"): si ya hay una con ese nombre
+ * (del catálogo o propia, sin importar mayúsculas) se reusa; si no, se arma una propia nueva.
+ * `isNew` indica que hay que guardarla en el perfil.
+ */
+export function categoryForName(name: string, emoji: string, custom: Category[], newId: string): { cat: Category; isNew: boolean } {
+  const clean = name.trim().slice(0, CUSTOM_NAME_MAX)
+  const key = clean.toLocaleLowerCase()
+  const same = [...CATEGORIES.filter((c) => !isOtros(c.id)), ...custom].find((c) => c.kind === 'gasto' && c.name.toLocaleLowerCase() === key)
+  if (same) return { cat: same, isNew: false }
+  return {
+    cat: { id: newId, name: clean, emoji, color: CUSTOM_COLORS[custom.length % CUSTOM_COLORS.length], kind: 'gasto' },
+    isNew: true,
+  }
+}
+
 export const ACCOUNT_TYPES: Record<AccountType, { label: string; emoji: string; color: string }> = {
   banco: { label: 'Banco', emoji: '🏦', color: '#6366f1' },
   efectivo: { label: 'Efectivo', emoji: '💵', color: '#16a34a' },
@@ -80,6 +96,10 @@ export interface MonthlyPreset {
   name: string
   emoji: string
   categoryId?: string
+  /** "Otro"/"Otra deuda": el usuario le pone nombre e ícono */
+  custom?: boolean
+  /** Ejemplo para el campo de nombre de un preset `custom` */
+  placeholder?: string
 }
 
 export const DEBT_PRESETS: MonthlyPreset[] = [
@@ -88,7 +108,7 @@ export const DEBT_PRESETS: MonthlyPreset[] = [
   { name: 'Vehículo', emoji: '🚗' },
   { name: 'Hipoteca', emoji: '🏠' },
   { name: 'Crédito de estudio', emoji: '🎓' },
-  { name: 'Otra deuda', emoji: '📄' },
+  { name: 'Otra deuda', emoji: '📄', custom: true, placeholder: '¿Cuál? Ej: Préstamo de mi tía' },
 ]
 
 export const FIXED_PRESETS: MonthlyPreset[] = [
@@ -100,7 +120,7 @@ export const FIXED_PRESETS: MonthlyPreset[] = [
   { name: 'Transporte', emoji: '🚌', categoryId: 'transporte' },
   { name: 'Seguros', emoji: '🛡️', categoryId: 'seguros' },
   { name: 'Gimnasio', emoji: '🏋️', categoryId: 'suscripciones' },
-  { name: 'Otro', emoji: '📌' },
+  { name: 'Otro', emoji: '📌', custom: true, placeholder: '¿Qué pagas? Ej: Uñas' },
 ]
 
 export const AVATARS = [

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { animate, AnimatePresence, motion, useDragControls } from 'framer-motion'
-import { AVATARS } from '../lib/catalog'
+import { avatarIndex, AVATARS } from '../lib/catalog'
 import type { Wardrobe } from '../lib/db'
-import { itemById } from '../lib/game'
+import { cleanWardrobe, itemById } from '../lib/game'
 import { money } from '../lib/format'
 import { Character, Pet } from './Creature'
 
@@ -19,7 +19,7 @@ export function Avatar({
   index,
   size = 48,
   onClick,
-  look,
+  look: rawLook,
   still,
 }: {
   index: number
@@ -29,7 +29,10 @@ export function Avatar({
   still?: boolean
 }) {
   const [happy, setHappy] = useState(0)
-  const a = AVATARS[index] ?? AVATARS[0]
+  // El índice y la ropa pueden venir de la nube o de otro jugador: se validan contra el catálogo
+  const species = avatarIndex(index)
+  const look = cleanWardrobe(rawLook)
+  const a = AVATARS[species]
   const bg = itemById(look?.bg)?.style ?? `linear-gradient(135deg, ${a.from}, ${a.to})`
   const frame = itemById(look?.frame)?.style
   const pet = look?.pet
@@ -62,7 +65,7 @@ export function Avatar({
       <span className="absolute inset-0 rounded-full shadow-lg" style={{ background: bg }} />
       <svg viewBox="-8 -12 136 136" className="pointer-events-none absolute inset-0 overflow-visible" width={size} height={size}>
         <g transform={pet ? 'translate(-7 0)' : undefined}>
-          <Character species={index} hat={look?.hat} happy={happy} still={still} />
+          <Character species={species} hat={look?.hat} happy={happy} still={still} />
         </g>
         {pet && (
           <g transform="translate(84 76)">

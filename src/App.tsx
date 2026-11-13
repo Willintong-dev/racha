@@ -24,6 +24,7 @@ import { Wardrobe } from './screens/Wardrobe'
 import { Achievements } from './screens/Achievements'
 import { Ranking } from './screens/Ranking'
 import { GameEngine } from './components/GameEngine'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 function AppLayout() {
   const location = useLocation()
@@ -40,7 +41,8 @@ function AppLayout() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.18 }}
             >
-              {outlet}
+              {/* Si una pantalla se rompe, la barra de abajo sigue viva; al cambiar de ruta se reintenta */}
+              <ErrorBoundary resetKey={location.pathname}>{outlet}</ErrorBoundary>
             </motion.div>
           </AnimatePresence>
         </div>
@@ -103,13 +105,16 @@ function Root() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <SyncProvider>
-          <Root />
-        </SyncProvider>
-        <CelebrationLayer />
-      </BrowserRouter>
-    </AuthProvider>
+    // Última red: cualquier error de renderizado muestra "Algo salió mal" en vez de una pantalla en blanco
+    <ErrorBoundary>
+      <AuthProvider>
+        <BrowserRouter>
+          <SyncProvider>
+            <Root />
+          </SyncProvider>
+          <CelebrationLayer />
+        </BrowserRouter>
+      </AuthProvider>
+    </ErrorBoundary>
   )
 }

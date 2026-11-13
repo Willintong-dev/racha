@@ -4,7 +4,7 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { useData } from '../lib/data'
 import { db } from '../lib/db'
-import { ACCOUNT_TYPES } from '../lib/catalog'
+import { accountTypeOf } from '../lib/catalog'
 import { adjustBalance, setPrimary } from '../lib/actions'
 import { celebrate } from '../lib/celebrate'
 import { formatTyping, money, parseAmount } from '../lib/format'
@@ -25,7 +25,7 @@ export function AccountDetail() {
   if (!acc) return <Navigate to="/cuentas" replace />
   const balance = balances.get(acc.id) ?? 0
   const list = txs.filter((t) => t.accountId === acc.id || t.toAccountId === acc.id)
-  const t = ACCOUNT_TYPES[acc.type]
+  const t = accountTypeOf(acc.type)
 
   const makePrimary = async () => {
     await setPrimary(userId, acc.id)

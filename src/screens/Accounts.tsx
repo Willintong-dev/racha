@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { useData } from '../lib/data'
 import type { Account } from '../lib/db'
-import { ACCOUNT_TYPES } from '../lib/catalog'
+import { accountTypeOf } from '../lib/catalog'
 import { currencyInfo, money } from '../lib/format'
 import { AnimatedMoney, Page } from '../components/ui'
 import { useQuickAdd } from '../components/QuickAdd'
@@ -125,7 +125,7 @@ function AccountCard({
   const moved = useRef(false)
   const ref = useRef<HTMLDivElement>(null)
   const [lifted, setLifted] = useState(false)
-  const t = ACCOUNT_TYPES[acc.type]
+  const t = accountTypeOf(acc.type)
 
   // Mientras se arrastra, bloquea el scroll táctil de la página
   useEffect(() => {

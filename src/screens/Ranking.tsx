@@ -9,6 +9,9 @@ import type { Wardrobe } from '../lib/db'
 import { healthScore, isoWeek, leagueOf, LEAGUES, PART_MAX, type HealthScore, type League, type LeagueId, type ScorePart } from '../lib/score'
 import { celebrate } from '../lib/celebrate'
 import { Avatar, BigButton, Chip, Page } from '../components/ui'
+import { ErrorBoundary } from '../components/ErrorBoundary'
+import { avatarIndex } from '../lib/catalog'
+import { cleanWardrobe } from '../lib/game'
 
 // ---------------------------------------------------------------------------
 // Participación (solo en este dispositivo; no tocamos el perfil sincronizado)
@@ -22,7 +25,8 @@ function readParticipation(userId: string): Participation | null {
   try {
     const raw = localStorage.getItem(KEY(userId))
     const p = raw ? (JSON.parse(raw) as Participation) : null
-    return p && typeof p.alias === 'string' ? p : null
+    // Un alias guardado por una versión vieja puede traer caracteres invisibles: se limpia o se pide de nuevo
+    return p && typeof p.alias === 'string' && validAlias(p.alias) ? { alias: cleanAlias(p.alias) } : null
   } catch {
     return null
   }
@@ -36,10 +40,14 @@ function writeParticipation(userId: string, p: Participation | null) {
   }
 }
 
-const cleanAlias = (s: string) => s.replace(/\s+/g, ' ').trim()
+const ALIAS_MAX = 20
+/** Caracteres de control e invisibles (ancho cero, cambios de dirección del texto): el servidor los rechaza */
+// eslint-disable-next-line no-control-regex -- justamente queremos quitar los caracteres de control
+const INVISIBLE = /[\u0000-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g
+const cleanAlias = (s: string) => s.replace(/\s+/g, ' ').replace(INVISIBLE, '').replace(/ {2,}/g, ' ').trim()
 const validAlias = (s: string) => {
   const n = [...cleanAlias(s)].length
-  return n >= 2 && n <= 20
+  return n >= 2 && n <= ALIAS_MAX
 }
 
 // ---------------------------------------------------------------------------
@@ -56,6 +64,39 @@ interface Row {
 }
 type Status = 'loading' | 'ready' | 'offline' | 'missing' | 'error'
 type PgError = { code?: string; message?: string } | null | undefined
+
+/** El servidor limita a una publicación cada 30 s: no es un error para el usuario, se queda la fila anterior */
+const isRateLimited = (e: PgError) => /rate_limited/i.test(e?.message ?? '')
+
+const WEEK_RE = /^[0-9]{4}-W[0-9]{2}$/
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+const clampInt = (v: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(v)))
+
+/**
+ * Las filas del ranking las escriben OTROS jugadores: no se confía en nada.
+ * Alias limpio, avatar y ropa del catálogo, puntaje y nivel numéricos. Una fila sin id o sin puntaje se descarta.
+ */
+function sanitizeRows(data: unknown): Row[] {
+  if (!Array.isArray(data)) return []
+  const seen = new Set<string>()
+  const out: Row[] = []
+  for (const r of data) {
+    if (!r || typeof r !== 'object') continue
+    const o = r as Record<string, unknown>
+    if (typeof o.user_id !== 'string' || !o.user_id || seen.has(o.user_id) || !finite(o.score)) continue
+    seen.add(o.user_id)
+    const alias = typeof o.alias === 'string' ? [...cleanAlias(o.alias)].slice(0, ALIAS_MAX).join('') : ''
+    out.push({
+      user_id: o.user_id,
+      alias: alias || 'Jugador',
+      avatar: avatarIndex(o.avatar),
+      wardrobe: cleanWardrobe(o.wardrobe) ?? null,
+      score: clampInt(o.score, 0, 100),
+      level: finite(o.level) ? clampInt(o.level, 1, 999) : 1,
+    })
+  }
+  return out
+}
 
 /** Clasifica un error de Supabase/red para mostrar un mensaje amable */
 function classify(e: PgError): Status {
@@ -196,6 +237,8 @@ function Board({
   onLeave: () => void
 }) {
   const week = isoWeek()
+  // Semana con la que el servidor guardó tu fila (manda la suya: cerca de la medianoche del domingo puede diferir)
+  const [listWeek, setListWeek] = useState(week)
   const [league, setLeague] = useState<LeagueId>(myLeague.id)
   const [status, setStatus] = useState<Status>('loading')
   const [synced, setSynced] = useState(false)
@@ -209,17 +252,29 @@ function Board({
     let cancelled = false
     setSynced(false)
     setStatus('loading')
+    setListWeek(week)
+    // Valores dentro de los límites del servidor (0003_hardening.sql)
+    const row = {
+      user_id: uid,
+      alias: [...cleanAlias(alias)].slice(0, ALIAS_MAX).join(''),
+      avatar: avatarIndex(avatar),
+      wardrobe: cleanWardrobe(wardrobe) ?? {},
+      score: clampInt(finite(health.score) ? health.score : 0, 0, 100),
+      level: clampInt(finite(level) ? level : 1, 1, 999),
+      week,
+    }
     supabase!
       .from('leaderboard')
-      .upsert(
-        { user_id: uid, alias, avatar, wardrobe: wardrobe ?? {}, score: health.score, level, week },
-        { onConflict: 'user_id' },
-      )
+      .upsert(row, { onConflict: 'user_id' })
+      .select('week')
       .then(
-        ({ error }) => {
+        ({ data, error }) => {
           if (cancelled) return
-          if (error) setStatus(classify(error))
-          else setSynced(true)
+          // Publicaste hace menos de 30 s: el servidor conserva la fila anterior y seguimos normal
+          if (error && !isRateLimited(error)) return setStatus(classify(error))
+          const w = (data as { week?: unknown }[] | null)?.[0]?.week
+          if (typeof w === 'string' && WEEK_RE.test(w)) setListWeek(w)
+          setSynced(true)
         },
         (e: Error) => !cancelled && setStatus(classify(e)),
       )
@@ -238,7 +293,7 @@ function Board({
         const { data, error } = await supabase!
           .from('leaderboard')
           .select('user_id, alias, avatar, wardrobe, score, level')
-          .eq('week', week)
+          .eq('week', listWeek)
           .gte('score', l.min)
           .lte('score', l.max)
           .order('score', { ascending: false })
@@ -246,13 +301,13 @@ function Board({
           .order('updated_at', { ascending: true })
           .limit(LIST_LIMIT)
         if (error) return setStatus(classify(error))
-        setRows((data ?? []) as Row[])
+        setRows(sanitizeRows(data))
         setStatus('ready')
       } catch (e) {
         setStatus(classify(e as Error))
       }
     },
-    [week],
+    [listWeek],
   )
 
   useEffect(() => {
@@ -329,9 +384,15 @@ function Board({
         {status === 'ready' && (rows.length > 0 || showMeExtra) && (
           <ol className="flex flex-col gap-2">
             {rows.map((r, i) => (
-              <PlayerRow key={r.user_id} row={r} rank={i + 1} me={r.user_id === uid} index={i} />
+              <SafeRow key={r.user_id}>
+                <PlayerRow row={r} rank={i + 1} me={r.user_id === uid} index={i} />
+              </SafeRow>
             ))}
-            {showMeExtra && <PlayerRow row={meRow} rank={null} me index={rows.length} />}
+            {showMeExtra && (
+              <SafeRow>
+                <PlayerRow row={meRow} rank={null} me index={rows.length} />
+              </SafeRow>
+            )}
           </ol>
         )}
       </div>
@@ -361,6 +422,15 @@ function Board({
         </AnimatePresence>
       </div>
     </>
+  )
+}
+
+/** Una fila rota (datos raros de otro jugador) no tumba la lista: se muestra un hueco discreto */
+function SafeRow({ children }: { children: ReactNode }) {
+  return (
+    <ErrorBoundary fallback={() => <li className="rounded-2xl bg-card px-3 py-4 text-center text-xs text-muted">Jugador no disponible</li>}>
+      {children}
+    </ErrorBoundary>
   )
 }
 

@@ -1,4 +1,4 @@
-import type { Account, Debt, Profile, Transaction } from './db'
+import type { Account, Debt, Profile, Transaction, Wardrobe } from './db'
 import type { ToMain } from './finance'
 import { addDays, todayStr } from './format'
 
@@ -136,6 +136,23 @@ export const WARDROBE: WardrobeItem[] = [
 ]
 
 export const itemById = (id?: string) => WARDROBE.find((w) => w.id === id)
+
+const SLOTS: Slot[] = ['bg', 'hat', 'frame', 'pet']
+
+/**
+ * Ropa del avatar a prueba de datos raros (nube, filas del ranking de otros jugadores):
+ * solo se quedan los ids del catálogo que corresponden a su ranura. Cualquier otra cosa
+ * ("__proto__", objetos, números, ids desconocidos) se descarta.
+ */
+export function cleanWardrobe(w: unknown): Wardrobe | undefined {
+  if (!w || typeof w !== 'object' || Array.isArray(w)) return undefined
+  const out: Wardrobe = {}
+  for (const slot of SLOTS) {
+    const id: unknown = Object.prototype.hasOwnProperty.call(w, slot) ? (w as Record<string, unknown>)[slot] : undefined
+    if (typeof id === 'string' && id.length <= 40 && itemById(id)?.slot === slot) out[slot] = id
+  }
+  return out
+}
 
 export function isUnlocked(item: WardrobeItem, level: number, achievements?: Record<string, number>) {
   return 'level' in item.unlock ? level >= item.unlock.level : !!achievements?.[item.unlock.achievement]

@@ -8,7 +8,7 @@ import {
   type Profile,
   type Transaction,
 } from './db'
-import { paidInMonth } from './debts'
+import { legacyAnchor, paidInMonth, withBalance } from './debts'
 import { FREEZE_MAX, freezesOf, itemsForLevel, type Achievement } from './game'
 import { celebrate } from './celebrate'
 import { fixedCategories, levelFromXp, makeToMain, rateOf, spentOn, sumItems } from './finance'
@@ -96,19 +96,21 @@ export async function applyFreezes(userId: string, days: string[], streakAfter: 
 }
 
 export async function saveTransaction(tx: Transaction, isNew: boolean) {
-  // Un pago nuevo a una deuda baja su saldo en la misma transacción de base de datos
+  // El saldo de una deuda se calcula con sus pagos (debts.ts): guardar el pago ya lo baja.
+  // Aquí solo leemos cómo estaba la deuda justo antes, para el XP y la celebración.
   let debtBefore: Debt | undefined
   let paidBefore = 0
-  if (isNew && tx.type === 'pago_deuda' && tx.debtId) {
-    await db.transaction('rw', db.transactions, db.debts, async () => {
-      debtBefore = await db.debts.get(tx.debtId!)
-      paidBefore = paidInMonth(tx.debtId!, await db.transactions.where('userId').equals(tx.userId).toArray(), tx.date)
-      await db.transactions.put(tx)
-      if (debtBefore) await applyToDebt(debtBefore.id, -tx.amount)
-    })
-  } else {
+  await db.transaction('rw', db.transactions, db.debts, async () => {
+    const prev = isNew ? undefined : await db.transactions.get(tx.id)
+    await anchorLegacyDebts(tx.userId, [prev?.type === 'pago_deuda' ? prev.debtId : undefined, tx.type === 'pago_deuda' ? tx.debtId : undefined])
+    if (isNew && tx.type === 'pago_deuda' && tx.debtId) {
+      const raw = await db.debts.get(tx.debtId)
+      const all = (await db.transactions.where('userId').equals(tx.userId).toArray()).filter((t) => t.id !== tx.id)
+      debtBefore = raw && withBalance(raw, all)
+      paidBefore = paidInMonth(tx.debtId, all, tx.date)
+    }
     await db.transactions.put(tx)
-  }
+  })
   // Liquidar una deuda se celebra primero, antes de cualquier XP que pueda disparar "Subiste de nivel"
   if (debtBefore && debtBefore.balance > 0 && debtBefore.balance - tx.amount <= 0.005) {
     celebrate.emit({ kind: 'payoff', name: debtBefore.name, emoji: debtBefore.emoji })
@@ -235,37 +237,47 @@ export async function changeMainCurrency(userId: string, next: string) {
   })
 }
 
+/** Borra un movimiento. Si era un pago de deuda, el saldo de la deuda sube solo (se calcula con los pagos). */
 export async function deleteTransaction(id: string) {
   return db.transaction('rw', db.transactions, db.debts, async () => {
     const tx = await db.transactions.get(id)
+    if (tx?.type === 'pago_deuda') await anchorLegacyDebts(tx.userId, [tx.debtId])
     await db.transactions.delete(id)
-    // Borrar un pago devuelve el saldo a la deuda
-    if (tx?.type === 'pago_deuda' && tx.debtId) await applyToDebt(tx.debtId, tx.amount)
     return tx
   })
 }
 
-/** Deshacer un borrado: vuelve a poner el movimiento (y a descontar el pago de la deuda) sin dar XP. */
+/** Deshacer un borrado: vuelve a poner el movimiento (un pago vuelve a contar para su deuda) sin dar XP. */
 export async function restoreTransaction(tx: Transaction) {
   await db.transaction('rw', db.transactions, db.debts, async () => {
+    if (tx.type === 'pago_deuda') await anchorLegacyDebts(tx.userId, [tx.debtId])
     await db.transactions.put(tx)
-    if (tx.type === 'pago_deuda' && tx.debtId) await applyToDebt(tx.debtId, -tx.amount)
   })
+}
+
+/**
+ * Deudas viejas (sin ancla): antes de agregar, editar o borrar uno de sus pagos se les escribe el ancla
+ * equivalente a su saldo de hoy (ver `legacyAnchor` en debts.ts). Si no, el pago nuevo quedaría "dentro"
+ * del saldo viejo y no se descontaría. Llamar dentro de una transacción con debts y transactions.
+ */
+async function anchorLegacyDebts(userId: string, ids: (string | undefined)[]) {
+  let all: Transaction[] | undefined
+  for (const id of new Set(ids)) {
+    if (!id) continue
+    const d = await db.debts.get(id)
+    if (!d || typeof d.balanceAnchor === 'number') continue
+    all ??= await db.transactions.where('userId').equals(userId).toArray()
+    const anchor = legacyAnchor(d, all)
+    if (anchor) await db.debts.update(id, anchor)
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Deudas
 // ---------------------------------------------------------------------------
 
-/** Suma `delta` al saldo (negativo = pago). Marca o desmarca la deuda como liquidada. */
-async function applyToDebt(debtId: string, delta: number) {
-  const d = await db.debts.get(debtId)
-  if (!d) return
-  const balance = Math.max(0, round2(d.balance + delta))
-  await db.debts.update(debtId, { balance, paidOffAt: balance <= 0 ? (d.paidOffAt ?? Date.now()) : undefined })
-}
-
 /**
+ * `before` es la deuda con su saldo CALCULADO justo antes del pago.
  * XP por pagar: la primera vez que se completa la cuota del mes = cuota (+50).
  * Abonos por encima de la cuota = pago extra (+100, máx. 1 por día y solo si es ≥ 10% de la cuota).
  * Liquidar la deuda = +500 y celebración.
@@ -294,6 +306,7 @@ async function rewardDebtPayment(tx: Transaction, before: Debt, paidBefore: numb
   }
 }
 
+/** `debt` debe traer el saldo calculado (como la entrega useData()): el pago no puede pasarse de él. */
 export async function payDebt(debt: Debt, amount: number, kind: 'cuota' | 'extra') {
   const paid = Math.min(round2(amount), debt.balance)
   if (paid <= 0) return
@@ -313,15 +326,20 @@ export async function payDebt(debt: Debt, amount: number, kind: 'cuota' | 'extra
   )
 }
 
-export type DebtInput = Omit<Debt, 'id' | 'userId' | 'createdAt' | 'originalBalance' | 'paidOffAt'>
+export type DebtInput = Omit<Debt, 'id' | 'userId' | 'createdAt' | 'originalBalance' | 'paidOffAt' | 'balanceAnchor' | 'anchorAt'>
 
 export async function createDebt(userId: string, data: DebtInput) {
+  const balance = round2(data.balance)
   const debt: Debt = {
     ...data,
     id: uid(),
     userId,
-    balance: round2(data.balance),
-    originalBalance: round2(data.balance),
+    balance,
+    // Ancla = saldo inicial. anchorAt 0 = cuentan TODOS sus pagos (una deuda nueva aún no tiene ninguno):
+    // así un pago hecho en otro teléfono con el reloj algo atrasado no se queda por fuera.
+    balanceAnchor: balance,
+    anchorAt: 0,
+    originalBalance: balance,
     createdAt: Date.now(),
   }
   await db.debts.add(debt)
@@ -329,17 +347,28 @@ export async function createDebt(userId: string, data: DebtInput) {
   return debt
 }
 
+/**
+ * Edita una deuda. Un `balance` distinto del saldo actual (calculado) es un "Ajustar saldo": pasa a ser el
+ * ancla y desde ahora solo cuentan los pagos posteriores. Si el saldo no cambió (el formulario de edición
+ * siempre lo manda) no se toca: reescribir el `balance` de una deuda vieja descontaría dos veces sus pagos.
+ */
 export async function updateDebt(id: string, data: Partial<DebtInput>) {
-  const d = await db.debts.get(id)
-  if (!d) return
-  const patch: Partial<Debt> = { ...data }
-  if (data.balance !== undefined) {
-    patch.balance = round2(data.balance)
-    // Si el saldo real es mayor que el original (intereses, más compras), el progreso parte de ahí
-    if (patch.balance > d.originalBalance) patch.originalBalance = patch.balance
-    patch.paidOffAt = patch.balance <= 0 ? (d.paidOffAt ?? Date.now()) : undefined
-  }
-  await db.debts.update(id, patch)
+  await db.transaction('rw', db.debts, db.transactions, async () => {
+    const d = await db.debts.get(id)
+    if (!d) return
+    const patch: Partial<Debt> = { ...data }
+    delete patch.balance
+    if (data.balance !== undefined) {
+      const balance = round2(data.balance)
+      const current = withBalance(d, await db.transactions.where('userId').equals(d.userId).toArray()).balance
+      if (balance !== current) {
+        Object.assign(patch, { balance, balanceAnchor: balance, anchorAt: Date.now() })
+        // Si el saldo real es mayor que el original (intereses, más compras), el progreso parte de ahí
+        if (balance > d.originalBalance) patch.originalBalance = balance
+      }
+    }
+    if (Object.keys(patch).length) await db.debts.update(id, patch)
+  })
 }
 
 export async function deleteDebt(id: string) {

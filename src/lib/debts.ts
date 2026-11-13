@@ -16,6 +16,90 @@ export function paidInMonth(debtId: string, txs: Transaction[], date = todayStr(
   return s
 }
 
+// ---------------------------------------------------------------------------
+// Saldo calculado a partir de los pagos
+// ---------------------------------------------------------------------------
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * Ancla efectiva de una deuda: saldo de referencia y desde cuándo se descuentan pagos.
+ *
+ * Deuda nueva: `balanceAnchor` / `anchorAt` guardados.
+ * Deuda vieja (sin ancla, de antes de este cambio): la versión anterior descontaba cada pago del `balance`
+ * guardado, así que mientras todos sus pagos sean de entonces el ancla equivalente es
+ * `balance + Σ sus pagos` contando todos (anchorAt = 0). Da el MISMO saldo que antes, sin escribir nada y
+ * igual en cualquier dispositivo con los mismos datos. Antes de que esta versión agregue, edite o borre un
+ * pago de una deuda vieja, `legacyAnchor` le deja esa ancla escrita (actions.ts): desde ahí es una deuda
+ * nueva. Por eso el `balance` de una deuda vieja NUNCA se reescribe sin poner también el ancla.
+ */
+function anchorOf(debt: Debt, payments: Transaction[]) {
+  if (typeof debt.balanceAnchor === 'number') return { anchor: debt.balanceAnchor, at: debt.anchorAt ?? 0 }
+  let s = 0
+  for (const t of payments) s += t.amount
+  return { anchor: round2((debt.balance ?? 0) + s), at: 0 }
+}
+
+/**
+ * Ancla que hay que escribirle a una deuda vieja (sin ancla) antes de tocar sus pagos, o undefined si ya
+ * tiene. Determinista: dos teléfonos que la anclan sin verse (con los mismos pagos) escriben lo mismo.
+ */
+export function legacyAnchor(debt: Debt, txs: Transaction[]): Pick<Debt, 'balanceAnchor' | 'anchorAt'> | undefined {
+  if (typeof debt.balanceAnchor === 'number') return undefined
+  const { anchor, at } = anchorOf(debt, paymentsOf(debt.id, txs))
+  return { balanceAnchor: anchor, anchorAt: at }
+}
+
+const paymentsOf = (debtId: string, txs: Transaction[]) => txs.filter((t) => t.type === 'pago_deuda' && t.debtId === debtId)
+
+/** Saldo con los pagos de esta deuda ya filtrados. */
+function balanceFrom(debt: Debt, payments: Transaction[]) {
+  const { anchor, at } = anchorOf(debt, payments)
+  let s = 0
+  for (const t of payments) if (t.createdAt > at) s += t.amount
+  return Math.max(0, round2(anchor - s))
+}
+
+/**
+ * Lo que falta pagar: ancla − pagos (pago_deuda de esta deuda) creados después del ancla, nunca negativo.
+ * `txs` puede traer movimientos de todo tipo y de otras deudas.
+ */
+export function debtBalance(debt: Debt, txs: Transaction[]) {
+  return balanceFrom(debt, paymentsOf(debt.id, txs))
+}
+
+function withPayments(debt: Debt, payments: Transaction[]): Debt {
+  const balance = balanceFrom(debt, payments)
+  let paidOffAt: number | undefined
+  if (balance <= 0) {
+    const { at } = anchorOf(debt, payments)
+    let last = 0
+    for (const t of payments) if (t.createdAt > at && t.createdAt > last) last = t.createdAt
+    paidOffAt = last || debt.paidOffAt || Math.max(debt.anchorAt ?? 0, debt.createdAt)
+  }
+  const out: Debt = { ...debt, balance }
+  if (paidOffAt === undefined) delete out.paidOffAt
+  else out.paidOffAt = paidOffAt
+  return out
+}
+
+/** La deuda con `balance` y `paidOffAt` calculados (lo que debe usar cualquier pantalla o regla). */
+export function withBalance(debt: Debt, txs: Transaction[]): Debt {
+  return withPayments(debt, paymentsOf(debt.id, txs))
+}
+
+/** Igual que `withBalance` para una lista (agrupa los pagos una sola vez). */
+export function withBalances(debts: Debt[], txs: Transaction[]): Debt[] {
+  const by = new Map<string, Transaction[]>()
+  for (const t of txs) {
+    if (t.type !== 'pago_deuda' || !t.debtId) continue
+    const l = by.get(t.debtId)
+    if (l) l.push(t)
+    else by.set(t.debtId, [t])
+  }
+  return debts.map((d) => withPayments(d, by.get(d.id) ?? []))
+}
+
 export interface DueInfo {
   /** Próxima fecha de pago pendiente */
   dueDate: string

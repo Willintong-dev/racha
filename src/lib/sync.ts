@@ -3,7 +3,9 @@
  *
  * - Cada escritura local de un usuario de Supabase queda en `db.outbox` (ver middleware en db.ts).
  * - Sincronizar = subir la cola (agrupada por documento) y luego bajar lo que cambió en el servidor
- *   desde la última vez (`updated_at` lo pone el servidor). Gana la última escritura.
+ *   desde la última vez (`updated_at` lo pone el servidor). Gana la última escritura, salvo en el perfil:
+ *   si hay cambios del perfil sin subir y llega uno distinto de la nube, se MEZCLAN (merge.ts) con la
+ *   última versión conocida de la nube como base (`profileBase`), y la mezcla se sube.
  * - Se baja en páginas de 500 ordenadas por (updated_at, kind, id), pidiendo cada página "después de la
  *   última fila vista" (keyset, no OFFSET: si otro dispositivo edita algo a mitad de la bajada no se salta
  *   nada). Cada página se aplica en su propia transacción marcada como "remota" (así no vuelve a la cola)
@@ -12,7 +14,8 @@
  * El motor habla con la nube a través de `Remote`, para poder probarlo con un servidor falso en memoria.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { markRemote, TABLE_OF, type LocalUser, type OutboxEntry, type RachaDB, type SyncKind } from './db'
+import { markRemote, TABLE_OF, type LocalUser, type OutboxEntry, type Profile, type RachaDB, type SyncKind } from './db'
+import { mergeProfile, stable } from './merge'
 
 export interface DocRow {
   kind: SyncKind
@@ -137,6 +140,11 @@ const K = {
   pullCursor: (u: string) => `pullCursor:${u}`,
   /** Terminó al menos una bajada completa en este dispositivo (aunque la nube estuviera vacía) */
   pulledOnce: (u: string) => `pulledOnce:${u}`,
+  /**
+   * Última versión del perfil que sabemos que está en la nube (la que bajamos o la que subimos).
+   * Es la base de la mezcla de tres vías del perfil (merge.ts).
+   */
+  profileBase: (u: string) => `profileBase:${u}`,
 }
 
 /** Punto de control de una bajada a medias */
@@ -164,15 +172,6 @@ export async function firstPullUnfinished(db: RachaDB, userId: string) {
 }
 
 const docKey = (kind: string, id: string) => `${kind}\u0000${id}`
-
-/** JSON con las llaves ordenadas (jsonb no conserva el orden) para comparar documentos. */
-function stable(v: unknown): string {
-  return JSON.stringify(v, (_k, val) =>
-    val && typeof val === 'object' && !Array.isArray(val)
-      ? Object.fromEntries(Object.keys(val).sort().map((k) => [k, (val as Record<string, unknown>)[k]]))
-      : val,
-  )
-}
 
 const syncTables = (db: RachaDB) => [db.profiles, db.accounts, db.transactions, db.debts]
 
@@ -214,6 +213,9 @@ export async function pushOutbox(db: RachaDB, remote: Remote, userId: string) {
     rows.push(row ? { kind: e.kind, id: e.id, data: row, deleted: false } : { kind: e.kind, id: e.id, data: {}, deleted: true })
   }
   if (rows.length) await remote.push(userId, rows)
+  // Lo que acabamos de subir del perfil es ahora lo que hay en la nube: la base de la próxima mezcla
+  const prof = rows.find((r) => r.kind === 'profile' && !r.deleted)
+  if (prof) await db.meta.put({ key: K.profileBase(userId), value: prof.data })
   // Solo borramos lo que subimos: lo que se encoló mientras tanto se queda para la próxima
   await db.outbox.bulkDelete(entries.map((e) => e.seq!))
   return rows.length
@@ -240,6 +242,8 @@ export interface PullResult {
   pages: number
   /** Se descartó un perfil creado aquí sin conexión porque la nube ya tenía uno (ver abajo) */
   replacedLocalProfile: boolean
+  /** Se mezcló el perfil local (con cambios sin subir) con uno distinto que llegó de la nube */
+  mergedProfile: boolean
 }
 
 const sameCursor = (a: PullCursor | null, b: PullCursor | null) => !!a && !!b && a.ts === b.ts && a.kind === b.kind && a.id === b.id
@@ -265,6 +269,7 @@ export async function pullRemote(db: RachaDB, remote: Remote, userId: string, op
   let pages = 0
   let applied = 0
   let replacedLocalProfile = false
+  let mergedProfile = false
 
   // En la primera bajada contamos cuántos documentos hay para mostrar el %. Si falla, no pasa nada.
   let total: number | null = null
@@ -308,7 +313,27 @@ export async function pullRemote(db: RachaDB, remote: Remote, userId: string, op
             !completedBefore &&
             seededAt !== undefined &&
             pendingEntries.filter((e) => e.kind === 'profile').every((e) => e.ts > seededAt)
-          if (!createdHereBlind) continue
+          if (!createdHereBlind) {
+            // Perfil con cambios locales sin subir: mezcla de tres vías en vez de ignorar la nube
+            if (d.kind === 'profile' && !d.deleted) {
+              const local = await db.profiles.get(userId)
+              if (!local) continue
+              const remoteP = { ...d.data, userId } as unknown as Profile
+              if (stable(local) !== stable(remoteP)) {
+                const base = await getMeta<Profile>(db, K.profileBase(userId))
+                const merged = mergeProfile(base, local, remoteP, userId)
+                if (stable(merged) !== stable(local)) {
+                  // La transacción es "remota" (no encola), pero la entrada pendiente del perfil sigue en la
+                  // cola: la mezcla se sube en el próximo pushOutbox.
+                  await db.profiles.put(merged)
+                  applied++
+                }
+                mergedProfile = true
+              }
+              await db.meta.put({ key: K.profileBase(userId), value: remoteP })
+            }
+            continue
+          }
           await db.outbox
             .where('userId')
             .equals(userId)
@@ -328,6 +353,7 @@ export async function pullRemote(db: RachaDB, remote: Remote, userId: string, op
           continue
         }
         const data = d.kind === 'profile' ? { ...d.data, userId } : { ...d.data, id: d.id, userId }
+        if (d.kind === 'profile') await db.meta.put({ key: K.profileBase(userId), value: data })
         if (local && stable(local) === stable(data)) continue
         await table.put(data)
         applied++
@@ -348,7 +374,7 @@ export async function pullRemote(db: RachaDB, remote: Remote, userId: string, op
     opts.onProgress?.({ pages, docs: docsSeen, total })
     if (!full) break
   }
-  return { applied, docs: docsSeen, pages, replacedLocalProfile }
+  return { applied, docs: docsSeen, pages, replacedLocalProfile, mergedProfile }
 }
 
 /** Una vuelta completa: encolar lo viejo (una vez), subir, bajar. */
@@ -356,12 +382,15 @@ export async function syncOnce(db: RachaDB, remote: Remote, userId: string, opts
   await seedOutbox(db, userId)
   // Si este dispositivo nunca terminó una bajada, primero BAJAMOS y luego subimos: así lo que hay en la
   // nube (p. ej. el perfil real) se ve antes de subir nada creado aquí a ciegas (ver la excepción en pullRemote).
-  const first = !(await hasCompletedPull(db, userId))
-  let pushed = first ? 0 : await pushOutbox(db, remote, userId)
+  // Lo mismo si hay cambios del perfil sin subir: subirlos primero pisaría lo que otro dispositivo subió
+  // (XP, logros…); bajando antes, pullRemote los mezcla y se sube la mezcla.
+  const profilePending = (await db.outbox.where('userId').equals(userId).filter((e) => e.kind === 'profile').count()) > 0
+  const pullFirst = !(await hasCompletedPull(db, userId)) || profilePending
+  let pushed = pullFirst ? 0 : await pushOutbox(db, remote, userId)
   const pull = await pullRemote(db, remote, userId, opts)
-  if (first) pushed = await pushOutbox(db, remote, userId)
+  if (pullFirst) pushed = await pushOutbox(db, remote, userId)
   await db.meta.put({ key: K.lastSync(userId), value: Date.now() })
-  return { pushed, pulled: pull.applied, replacedLocalProfile: pull.replacedLocalProfile }
+  return { pushed, pulled: pull.applied, replacedLocalProfile: pull.replacedLocalProfile, mergedProfile: pull.mergedProfile }
 }
 
 

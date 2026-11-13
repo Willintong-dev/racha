@@ -9,7 +9,8 @@
  */
 import 'fake-indexeddb/auto'
 import { createClient } from '@supabase/supabase-js'
-import { RachaDB, type Profile } from '../src/lib/db'
+import { RachaDB, type CustomCategory, type Debt, type Profile, type Transaction } from '../src/lib/db'
+import { debtBalance, legacyAnchor } from '../src/lib/debts'
 import {
   PULL_PAGE,
   SyncEngine,
@@ -31,6 +32,7 @@ const ok = (c: boolean, m: string) => {
   if (!c) failures++
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+const J = (v: unknown) => JSON.stringify(v)
 
 // ---------------------------------------------------------------------------
 // Servidor falso en memoria
@@ -484,6 +486,112 @@ async function main() {
       threw2 = true
     }
     ok(threw2, 'HTTP: sin red, hasProfile lanza')
+  }
+
+  // --- Dos dispositivos sin verse: el perfil se mezcla y el saldo de las deudas sale de los pagos -----
+  {
+    const s = new Store()
+    const U = 'two-dev'
+    const A = new RachaDB('two-A')
+    const B = new RachaDB('two-B')
+    A.syncUserId = U
+    B.syncUserId = U
+    const rA = new FakeRemote(s)
+    const rB = new FakeRemote(s)
+    const c = (id: string, name: string): CustomCategory => ({ id, name, emoji: '⭐', color: '#000', kind: 'gasto' })
+    const pay = (id: string, amount: number, debtId = 'deb'): Transaction => ({
+      id, userId: U, type: 'pago_deuda', amount, accountId: 'a0', debtId, date: '2026-11-10', createdAt: Date.now(),
+    })
+    const both = async () => {
+      await syncOnce(A, rA, U)
+      await syncOnce(B, rB, U)
+      await syncOnce(A, rA, U)
+    }
+    const bal = async (d: RachaDB, id = 'deb') => debtBalance((await d.debts.get(id))!, await d.transactions.toArray())
+
+    await A.profiles.put({ ...prof(U, 'Ana', 100), freezes: 1, achievements: { primer_paso: 1 }, customCategories: [c('c1', 'Gatos'), c('c2', 'Plantas')] })
+    const debtRow: Debt = {
+      id: 'deb', userId: U, name: 'Tarjeta', emoji: '💳', currency: 'COP', originalBalance: 1000, balance: 1000, balanceAnchor: 1000, anchorAt: 0,
+      monthlyPayment: 100, dueDay: 15, payFromAccountId: 'a0', createdAt: Date.now(),
+    }
+    await A.debts.put(debtRow)
+    await syncOnce(A, rA, U)
+    await syncOnce(B, rB, U)
+    ok((await B.profiles.get(U))?.xp === 100 && !!(await B.debts.get('deb')), 'B recibe el perfil y la deuda de A')
+    ok(!!(await B.meta.get(`profileBase:${U}`)) && !!(await A.meta.get(`profileBase:${U}`)), 'los dos guardan la base del perfil (lo último visto en la nube)')
+
+    // Sin conexión, cada uno por su lado
+    await A.profiles.update(U, { xp: 150, achievements: { primer_paso: 1, racha_3: 5 }, customCategories: [c('c2', 'Plantas')] })
+    await A.transactions.put(pay('pA', 100))
+    await B.profiles.update(U, { xp: 130, achievements: { primer_paso: 1, cuentas_2: 6 }, customCategories: [c('c1', 'Gatos'), c('c2', 'Plantas'), c('c3', 'Viajes')] })
+    await B.transactions.put(pay('pB', 200))
+    await both()
+    for (const [n, d] of [['A', A], ['B', B]] as const) {
+      const p = (await d.profiles.get(U))!
+      ok(p.xp === 180, `${n}: XP ganado en los dos se suma (100 + 50 + 30 = ${p.xp})`)
+      ok(J(Object.keys(p.achievements ?? {}).sort()) === J(['cuentas_2', 'primer_paso', 'racha_3']), `${n}: logros de los dos (unión)`)
+      ok(J(p.customCategories?.map((x) => x.id)) === J(['c2', 'c3']), `${n}: categoría borrada en A y agregada en B → c2, c3 (${p.customCategories?.map((x) => x.id)})`)
+      ok((await bal(d)) === 700, `${n}: los dos pagos a la misma deuda cuentan (1000 − 100 − 200 = ${await bal(d)})`)
+      ok((await d.outbox.count()) === 0, `${n}: cola vacía al final`)
+    }
+    ok((s.get(U, 'profile', U)!.data as unknown as Profile).xp === 180, 'la nube tiene la mezcla')
+
+    // El mismo logro (racha_7, 75 XP) desbloqueado en los dos sin verse: su XP cuenta una vez
+    await A.profiles.update(U, { xp: 255, achievements: { ...(await A.profiles.get(U))!.achievements, racha_7: 50 } })
+    await B.profiles.update(U, { xp: 255, achievements: { ...(await B.profiles.get(U))!.achievements, racha_7: 40 } })
+    // Y una edición del pago en A y un borrado en B
+    await A.transactions.update('pA', { amount: 150 })
+    await B.transactions.delete('pB')
+    await both()
+    const pa = (await A.profiles.get(U))!
+    const pb = (await B.profiles.get(U))!
+    ok(pa.xp === 255 && pb.xp === 255, `mismo logro en los dos: XP sin duplicar (${pa.xp} / ${pb.xp})`)
+    ok(pa.achievements?.racha_7 === 40 && pb.achievements?.racha_7 === 40, 'mismo logro: queda la fecha más temprana')
+    ok((await bal(A)) === 850 && (await bal(B)) === 850, `editar un pago (100→150) en A y borrar el de B → 850 en los dos (${await bal(A)} / ${await bal(B)})`)
+
+    // Ajustar saldo en un dispositivo y pagar en el otro (pago posterior al ajuste)
+    await A.debts.update('deb', { balance: 2000, balanceAnchor: 2000, anchorAt: Date.now() })
+    await sleep(3)
+    await B.transactions.put(pay('pB2', 300))
+    await both()
+    ok((await bal(A)) === 1700 && (await bal(B)) === 1700, `ajuste a 2000 en A + pago posterior de 300 en B → 1700 en los dos (${await bal(A)} / ${await bal(B)})`)
+
+    // Deuda vieja (sin ancla, de antes de esta versión): igual en los dos, y dos pagos sin verse cuentan los dos
+    const legacy: Debt = { ...debtRow, id: 'old', balance: 700, originalBalance: 1000 }
+    delete legacy.balanceAnchor
+    delete legacy.anchorAt
+    await A.debts.put(legacy)
+    await A.transactions.put(pay('old-1', 300, 'old'))
+    await both()
+    ok((await bal(A, 'old')) === 700 && (await bal(B, 'old')) === 700, 'deuda vieja: el mismo saldo de antes en los dos (700)')
+    // Lo que hace saveTransaction con una deuda vieja: escribirle el ancla equivalente y luego guardar el pago
+    for (const [d, id, amount] of [[A, 'old-a', 50], [B, 'old-b', 70]] as const) {
+      await d.debts.update('old', legacyAnchor((await d.debts.get('old'))!, await d.transactions.toArray())!)
+      await d.transactions.put(pay(id, amount, 'old'))
+    }
+    await both()
+    ok((await bal(A, 'old')) === 580 && (await bal(B, 'old')) === 580, `deuda vieja: dos pagos sin verse (50 y 70) → 580 en los dos (${await bal(A, 'old')} / ${await bal(B, 'old')})`)
+
+    // Moneda: A cambia a USD (montos convertidos), B edita el ingreso en COP y el nombre
+    await A.profiles.update(U, { currency: 'USD', rates: { COP: 1 / 4000 }, monthlyIncome: 1000 })
+    await B.profiles.update(U, { monthlyIncome: 5_000_000, name: 'Ana B' })
+    await both()
+    for (const [n, d] of [['A', A], ['B', B]] as const) {
+      const p = (await d.profiles.get(U))!
+      ok(p.currency === 'USD' && p.monthlyIncome === 1000 && J(p.rates) === J({ COP: 1 / 4000 }) && p.name === 'Ana B', `${n}: moneda distinta → el dinero sale entero de A (USD, 1000); el nombre de B se conserva`)
+    }
+
+    // Sin base (primera mezcla tras actualizar la app): no se suma dos veces, gana el mayor
+    await B.meta.delete(`profileBase:${U}`)
+    await A.profiles.update(U, { xp: 300 })
+    await syncOnce(A, rA, U)
+    await B.profiles.update(U, { xp: 250, frozenDays: ['2026-11-02'] })
+    await B.meta.delete(`profileBase:${U}`)
+    const res = await syncOnce(B, rB, U)
+    const p = (await B.profiles.get(U))!
+    ok(res.mergedProfile && p.xp === 300 && J(p.frozenDays) === J(['2026-11-02']), `sin base: XP = el mayor (${p.xp}), los días congelados se unen`)
+    await syncOnce(A, rA, U)
+    ok((await A.profiles.get(U))!.xp === 300 && J((await A.profiles.get(U))!.frozenDays) === J(['2026-11-02']), 'A recibe la mezcla')
   }
 
   if (failures) {

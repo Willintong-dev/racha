@@ -4,6 +4,7 @@ import { db, type Account, type Debt, type Profile, type Transaction } from './d
 import { useAuth } from './auth'
 import { computeBalances, computeStreak, fixedCategories, levelFromXp, makeToMain, missingRates, rateOf, type ToMain } from './finance'
 import { setMainCurrency } from './format'
+import { withBalances } from './debts'
 import { Splash } from '../screens/Splash'
 
 interface Data {
@@ -12,7 +13,10 @@ interface Data {
   accounts: Account[]
   /** Ordenados del más reciente al más antiguo */
   txs: Transaction[]
-  /** Todas las deudas, incluidas las liquidadas */
+  /**
+   * Todas las deudas, incluidas las liquidadas, con `balance` y `paidOffAt` CALCULADOS a partir de sus pagos
+   * (ver debtBalance en debts.ts). Nunca uses el saldo guardado en la base.
+   */
   debts: Debt[]
   /** Saldo de cada cuenta, en la moneda de esa cuenta */
   balances: Map<string, number>
@@ -38,7 +42,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const userId = useAuth().user!.id
   const profile = useLiveQuery(() => db.profiles.get(userId), [userId])
   const accounts = useLiveQuery(() => db.accounts.where('userId').equals(userId).toArray(), [userId])
-  const debts = useLiveQuery(
+  const rawDebts = useLiveQuery(
     () => db.debts.where('userId').equals(userId).toArray().then((l) => l.sort((a, b) => a.createdAt - b.createdAt)),
     [userId],
   )
@@ -51,6 +55,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         .then((l) => l.sort((a, b) => (a.date === b.date ? b.createdAt - a.createdAt : a.date < b.date ? 1 : -1))),
     [userId],
   )
+  const debts = useMemo(() => rawDebts && txs && withBalances(rawDebts, txs), [rawDebts, txs])
   const balances = useMemo(() => computeBalances(accounts ?? [], txs ?? []), [accounts, txs])
   const main = profile?.currency ?? 'COP'
   const rates = profile?.rates

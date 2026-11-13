@@ -105,8 +105,19 @@ export interface Debt {
   currency: string
   /** Saldo cuando se registró la deuda (para la barra de progreso) */
   originalBalance: number
-  /** Lo que falta pagar hoy. Baja con cada pago; "Ajustar saldo" lo iguala al banco. */
+  /**
+   * Lo que falta pagar. Lo que trae `useData()` (y `withBalance`) ya es el saldo CALCULADO.
+   * El valor guardado solo vale para deudas viejas sin `balanceAnchor` (ver `debtBalance` en debts.ts) y
+   * como copia del ancla. Nunca se le descuenta un pago: dos teléfonos pagando la misma deuda se pisarían.
+   */
   balance: number
+  /**
+   * Saldo de referencia: el inicial al crearla, o el que puso "Ajustar saldo". Saldo actual =
+   * `balanceAnchor − Σ pagos (pago_deuda) de esta deuda creados después de anchorAt`.
+   */
+  balanceAnchor?: number
+  /** Hora (ms) del ancla. 0 = cuentan todos los pagos de la deuda (al crearla todavía no hay ninguno). */
+  anchorAt?: number
   monthlyPayment: number
   /** Día del mes en que vence la cuota (1-31) */
   dueDay: number
@@ -114,6 +125,7 @@ export interface Debt {
   annualRate?: number
   payFromAccountId: string
   createdAt: number
+  /** Cuándo quedó en cero. Se calcula al leer (`withBalance`); el valor guardado es de versiones viejas. */
   paidOffAt?: number
   /** Mes (YYYY-MM) en que ya se dio XP por cuota: borrar y repetir un pago no vuelve a dar XP */
   xpCuotaMonth?: string
